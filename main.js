@@ -3,30 +3,29 @@ import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 // ============================================================
-//  OLYMPIC LUGE MARBLE RUN 3D
+//  OLYMPIC LUGE / BOBSLED MARBLE RUN 3D
+//  — Virtually impossible to fall off —
 // ============================================================
 
-// --- TEAM COLORS & NAMES ---
+// --- TEAMS ---
 const TEAMS = [
-  { name: 'Crimson',   color: 0xff2244 },
-  { name: 'Sapphire',  color: 0x2266ff },
-  { name: 'Emerald',   color: 0x22cc44 },
-  { name: 'Gold',      color: 0xffcc00 },
-  { name: 'Violet',    color: 0xaa44ff },
-  { name: 'Coral',     color: 0xff6644 },
-  { name: 'Cyan',      color: 0x00ddee },
-  { name: 'Hot Pink',  color: 0xff44aa },
-  { name: 'Lime',      color: 0x88ff22 },
-  { name: 'Silver',    color: 0xccccdd },
+  { name: 'Crimson',  color: 0xff2244 },
+  { name: 'Sapphire', color: 0x2266ff },
+  { name: 'Emerald',  color: 0x22cc44 },
+  { name: 'Gold',     color: 0xffcc00 },
+  { name: 'Violet',   color: 0xaa44ff },
+  { name: 'Coral',    color: 0xff6644 },
+  { name: 'Cyan',     color: 0x00ddee },
+  { name: 'Hot Pink', color: 0xff44aa },
 ];
 
 // --- CONFIG ---
-const MARBLE_RADIUS = 0.3;
-const GRAVITY = -25; // High gravity for speed
-const PHYSICS_STEPS = 5; // Extra sub-steps for stability
-const FINISH_Y = -60;
-const ELIMINATE_Y = -100;
-const STUCK_TIMEOUT = 3000;
+const MARBLE_RADIUS  = 0.28;
+const MARBLE_MASS    = 1;
+const GRAVITY        = -22;
+const FINISH_Y       = -70;
+const ELIMINATE_Y    = -120;
+const STUCK_TIMEOUT  = 5000;
 
 // --- STATE ---
 let marbles = [];
@@ -35,15 +34,19 @@ let raceStartTime = 0;
 let finishOrder = [];
 let followCamera = true;
 let nextTeamIndex = 0;
-let cameraTargetPos = new THREE.Vector3();
+let currentCameraTarget = null;
 
-// --- THREE.JS SETUP ---
+// ============================================================
+//  THREE.JS
+// ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0a1020);
-scene.fog = new THREE.FogExp2(0x0a1020, 0.008);
+scene.background = new THREE.Color(0x050510);
+scene.fog = new THREE.FogExp2(0x050510, 0.004);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(20, 30, 20);
+const camera = new THREE.PerspectiveCamera(
+  60, window.innerWidth / window.innerHeight, 0.1, 500
+);
+camera.position.set(25, 50, 40);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -51,362 +54,779 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.maxDistance = 100;
+controls.dampingFactor = 0.05;
+controls.maxDistance = 120;
 
-// --- LIGHTING ---
-const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-scene.add(ambientLight);
+// --- LIGHTS ---
+scene.add(new THREE.AmbientLight(0x334466, 0.6));
 
-const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-sunLight.position.set(50, 80, 50);
-sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 2048;
-sunLight.shadow.mapSize.height = 2048;
-sunLight.shadow.camera.near = 1;
-sunLight.shadow.camera.far = 200;
-sunLight.shadow.camera.left = -50;
-sunLight.shadow.camera.right = 50;
-sunLight.shadow.camera.top = 50;
-sunLight.shadow.camera.bottom = -50;
-scene.add(sunLight);
+const sun = new THREE.DirectionalLight(0xffeedd, 1.4);
+sun.position.set(30, 60, 20);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 200;
+sun.shadow.camera.left = -60;
+sun.shadow.camera.right = 60;
+sun.shadow.camera.top = 80;
+sun.shadow.camera.bottom = -80;
+scene.add(sun);
 
-// Track lights
-const lightColors = [0xff0044, 0x00ff44, 0x4444ff];
-for (let i = 0; i < 8; i++) {
-  const pl = new THREE.PointLight(lightColors[i % 3], 0.8, 40);
-  pl.position.set(Math.sin(i)*20, 20 - i*10, Math.cos(i)*20);
+scene.add(new THREE.DirectionalLight(0x6688cc, 0.3).translateX(-20).translateY(10));
+
+// Accent lights along course
+const accentCols = [0xff4466, 0x44ff88, 0x4488ff, 0xffaa44, 0xff44ff];
+for (let i = 0; i < accentCols.length; i++) {
+  const pl = new THREE.PointLight(accentCols[i], 0.5, 50);
+  pl.position.set(Math.sin(i * 1.3) * 15, 40 - i * 20, Math.cos(i * 1.3) * 15);
   scene.add(pl);
 }
 
-// --- PHYSICS SETUP ---
+// --- STARS ---
+{
+  const g = new THREE.BufferGeometry();
+  const N = 2000;
+  const pos = new Float32Array(N * 3);
+  for (let i = 0; i < N * 3; i += 3) {
+    const r = 100 + Math.random() * 100;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    pos[i] = r * Math.sin(ph) * Math.cos(th);
+    pos[i + 1] = r * Math.sin(ph) * Math.sin(th);
+    pos[i + 2] = r * Math.cos(ph);
+  }
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
+    color: 0xffffff, size: 0.3, sizeAttenuation: true,
+  })));
+}
+
+// ============================================================
+//  CANNON.JS
+// ============================================================
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, GRAVITY, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
-// High performance materials
-const marbleMat = new CANNON.Material('marble');
-const trackMat = new CANNON.Material('track');
-const contactMat = new CANNON.ContactMaterial(trackMat, marbleMat, {
-  friction: 0.1,       // Very slick (Ice/Luge)
-  restitution: 0.1,    // Low bounce
+world.solver.iterations = 15;
+world.solver.tolerance = 0.0001;
+
+const trackPhysMat  = new CANNON.Material('track');
+const marblePhysMat = new CANNON.Material('marble');
+world.addContactMaterial(new CANNON.ContactMaterial(trackPhysMat, marblePhysMat, {
+  friction: 0.08,       // ICY — luge style
+  restitution: 0.05,    // Almost no bounce
   contactEquationStiffness: 1e8,
   contactEquationRelaxation: 3,
+}));
+world.addContactMaterial(new CANNON.ContactMaterial(marblePhysMat, marblePhysMat, {
+  friction: 0.1,
+  restitution: 0.15,
+}));
+
+// ============================================================
+//  TRACK MATERIALS (visual)
+// ============================================================
+const matFloor = new THREE.MeshStandardMaterial({
+  color: 0x556688, metalness: 0.7, roughness: 0.2,
 });
-world.addContactMaterial(contactMat);
+const matWall = new THREE.MeshStandardMaterial({
+  color: 0x7799bb, metalness: 0.6, roughness: 0.15,
+  transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+});
+const matRail = new THREE.MeshStandardMaterial({
+  color: 0x99bbdd, metalness: 0.8, roughness: 0.1,
+  transparent: true, opacity: 0.25, side: THREE.DoubleSide,
+});
+const matStart = new THREE.MeshStandardMaterial({
+  color: 0x445566, metalness: 0.5, roughness: 0.3,
+});
+const matFinish = new THREE.MeshStandardMaterial({
+  color: 0x338855, metalness: 0.5, roughness: 0.3,
+});
 
 // ============================================================
-//  TRACK GENERATION (LUGE STYLE)
+//  TRACK PATH (CatmullRom Spline)
+// ============================================================
+// A long winding Olympic bobsled-style course.
+// Y drops from 40 → ~ -68 over many sections.
+// Includes: initial drop, wide sweepers, tight hairpins, a helix,
+// whoops/undulations, chicanes, and a final straight to the bowl.
+
+const controlPoints = [
+  // --- START GATE ---
+  new THREE.Vector3(  0,   42,   0),
+  new THREE.Vector3(  0,   40,  -5),
+
+  // --- INITIAL GENTLE DROP ---
+  new THREE.Vector3(  2,   37, -14),
+  new THREE.Vector3(  5,   34, -22),
+
+  // --- FIRST SWEEPING RIGHT ---
+  new THREE.Vector3( 14,   30, -28),
+  new THREE.Vector3( 22,   26, -22),
+  new THREE.Vector3( 24,   22, -10),
+
+  // --- LONG LEFT SWEEPER ---
+  new THREE.Vector3( 18,   18,   0),
+  new THREE.Vector3(  8,   15,   8),
+  new THREE.Vector3( -4,   12,  10),
+
+  // --- WHOOPS (undulations via Y) ---
+  new THREE.Vector3(-14,   10.5,   6),
+  new THREE.Vector3(-20,    9,  -2),
+  new THREE.Vector3(-22,   10, -10),  // bump up
+  new THREE.Vector3(-20,    8, -18),
+  new THREE.Vector3(-16,    9, -24),  // bump up
+  new THREE.Vector3(-10,    6, -30),
+
+  // --- TIGHT HAIRPIN RIGHT ---
+  new THREE.Vector3(  0,    3, -34),
+  new THREE.Vector3( 10,    0, -30),
+  new THREE.Vector3( 14,   -3, -22),
+
+  // --- DESCENDING HELIX (270°) ---
+  new THREE.Vector3( 18,   -7, -14),
+  new THREE.Vector3( 14,  -11,  -6),
+  new THREE.Vector3(  6,  -15, -10),
+  new THREE.Vector3(  2,  -19, -18),
+
+  // --- SECOND WHOOPS ---
+  new THREE.Vector3( -4,  -21, -24),
+  new THREE.Vector3(-10,  -20, -28),  // bump up
+  new THREE.Vector3(-16,  -23, -30),
+  new THREE.Vector3(-20,  -22, -34),  // bump up
+  new THREE.Vector3(-22,  -25, -38),
+
+  // --- S-CURVE / CHICANE ---
+  new THREE.Vector3(-18,  -28, -44),
+  new THREE.Vector3(-10,  -31, -48),
+  new THREE.Vector3(  0,  -34, -46),
+  new THREE.Vector3(  8,  -37, -42),
+  new THREE.Vector3( 12,  -40, -36),
+
+  // --- LONG SWEEPING LEFT ---
+  new THREE.Vector3( 10,  -43, -28),
+  new THREE.Vector3(  4,  -46, -20),
+  new THREE.Vector3( -4,  -49, -16),
+
+  // --- THIRD WHOOPS ---
+  new THREE.Vector3(-12,  -51, -12),
+  new THREE.Vector3(-18,  -50, -8),   // bump up
+  new THREE.Vector3(-22,  -53, -2),
+  new THREE.Vector3(-18,  -52,  4),   // bump up
+  new THREE.Vector3(-12,  -55,  8),
+
+  // --- FINAL CURVES ---
+  new THREE.Vector3( -4,  -58,  12),
+  new THREE.Vector3(  4,  -61,  14),
+  new THREE.Vector3( 10,  -64,  10),
+
+  // --- FINISH STRAIGHT ---
+  new THREE.Vector3( 10,  -66,   2),
+  new THREE.Vector3(  8,  -68,  -6),
+  new THREE.Vector3(  5,  -69, -12),
+];
+
+const trackCurve = new THREE.CatmullRomCurve3(controlPoints, false, 'catmullrom', 0.4);
+const TRACK_LENGTH = trackCurve.getLength();
+
+// ============================================================
+//  BUILD THE TRACK
 // ============================================================
 
+const trackBodies = [];
 const trackMeshes = [];
 
-// Helper to add a physics box with visual mesh
-function createBox(w, h, d, pos, quat, color, isWall = false) {
-  // Visual
-  const mat = new THREE.MeshStandardMaterial({
-    color: color,
-    metalness: 0.4,
-    roughness: 0.2,
-    transparent: isWall,
-    opacity: isWall ? 0.4 : 1.0,
-  });
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
-  mesh.position.copy(pos);
-  mesh.quaternion.copy(quat);
-  mesh.castShadow = !isWall;
-  mesh.receiveShadow = true;
-  scene.add(mesh);
-  trackMeshes.push(mesh);
-
-  // Physics
-  const body = new CANNON.Body({ mass: 0, material: trackMat });
-  body.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2)));
+function addPhysBox(w, h, d, pos, quat) {
+  const body = new CANNON.Body({ mass: 0, material: trackPhysMat });
+  body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
   body.position.copy(pos);
   body.quaternion.copy(quat);
   world.addBody(body);
-  
-  return { mesh, body };
+  trackBodies.push(body);
+  return body;
 }
 
-// 1. Define the Path (Spline)
-// We want a high start, drops, loops, and a finish.
-const pathPoints = [
-  new THREE.Vector3(0, 40, 0),        // Start Platform
-  new THREE.Vector3(0, 38, -10),      // Initial drop
-  new THREE.Vector3(10, 32, -20),     // Right Bank
-  new THREE.Vector3(20, 25, -10),     // Curve back
-  new THREE.Vector3(10, 20, 10),      // S-curve 1
-  new THREE.Vector3(-10, 15, 0),      // S-curve 2
-  new THREE.Vector3(-20, 10, -15),    // Big sweep
-  new THREE.Vector3(-10, 5, -30),     // Bottom of sweep
-  new THREE.Vector3(10, 0, -30),      // Straight
-  new THREE.Vector3(25, -5, -15),     // Helix entry
-  new THREE.Vector3(25, -10, 5),      // Helix mid
-  new THREE.Vector3(10, -15, 15),     // Helix exit
-  new THREE.Vector3(-5, -20, 15),     // Drop
-  new THREE.Vector3(-15, -25, 5),     // Turn
-  new THREE.Vector3(-15, -30, -10),   // Final stretch start
-  new THREE.Vector3(0, -35, -20),     // Final straight
-  new THREE.Vector3(0, -40, -30),     // Finish
-];
+function addVisBox(w, h, d, pos, quat, mat) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  mesh.position.copy(pos);
+  mesh.quaternion.copy(quat);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  trackMeshes.push(mesh);
+  return mesh;
+}
 
-const curve = new THREE.CatmullRomCurve3(pathPoints);
-curve.tension = 0.5;
-curve.type = 'catmullrom';
+function addTrackPiece(w, h, d, pos, quat, visMat, isWall) {
+  addPhysBox(w, h, d, pos, quat);
+  const m = addVisBox(w, h, d, pos, quat, isWall ? matWall : (visMat || matFloor));
+  if (isWall) { m.castShadow = false; }
+}
 
-// 2. Extrude the Track
-// We'll walk along the curve and place "ribs" of physics boxes.
-// This approximates a smooth tube.
+// ---- Generate the Luge Channel ----
+// Cross-section (looking from behind):
+//
+//   |  ╲_________╱  |
+//   |   (floor)     |   
+//   RAIL  WALL  WALL  RAIL
+//
+// 5 parts per rib:
+//   1. Floor (flat, width=TRACK_W)
+//   2. Left banked wall (tilted inward ~55°)
+//   3. Right banked wall (tilted inward ~55°)
+//   4. Left vertical safety rail
+//   5. Right vertical safety rail
 
-function buildTrack() {
-  const samples = 80; // LOW segment count for performance (~240 bodies for track)
-  const trackColor = 0x4466aa;
-  const wallColor = 0x6688cc;
-  const totalLen = curve.getLength();
-  const segLen = (totalLen / samples) * 1.08; // overlap to prevent gaps
+const TRACK_W       = 3.0;   // Floor width
+const FLOOR_THICK   = 0.18;
+const WALL_H        = 2.0;   // Banked wall panel height
+const WALL_THICK    = 0.14;
+const WALL_ANGLE    = Math.PI * 0.32; // ~58° bank angle
+const RAIL_H        = 1.2;   // Vertical top rail
+const RAIL_THICK    = 0.14;
+const NUM_SEGMENTS  = 200;   // Number of ribs
 
-  // ── Start Platform: fully enclosed box ──
-  createBox(8, 1, 8, new THREE.Vector3(0, 39.5, 2), new THREE.Quaternion(), 0x334455);
-  createBox(0.5, 4, 8, new THREE.Vector3(-4.25, 41.5, 2), new THREE.Quaternion(), 0x334455, true);
-  createBox(0.5, 4, 8, new THREE.Vector3(4.25, 41.5, 2), new THREE.Quaternion(), 0x334455, true);
-  createBox(9, 4, 0.5, new THREE.Vector3(0, 41.5, 6.25), new THREE.Quaternion(), 0x334455, true);
-  createBox(9, 4, 0.5, new THREE.Vector3(0, 41.5, -2.25), new THREE.Quaternion(), 0x334455, true);
+function buildLugeTrack() {
+  // Pre-compute a smoothed set of Frenet frames along the curve.
+  // We use a "parallel transport" approach to avoid flips.
 
-  // ── Generate U-channel luge track along spline ──
-  const floorW = 3.0;    // Wide floor
-  const wallH = 2.2;     // Tall walls
-  const thickness = 0.25;
+  const frames = [];
+  const up0 = new THREE.Vector3(0, 1, 0);
+  let prevNormal = up0.clone();
 
-  for (let i = 1; i <= samples; i++) {
-    const t = i / samples;
-    const pos = curve.getPointAt(t);
-    const tangent = curve.getTangentAt(t).normalize();
+  for (let i = 0; i <= NUM_SEGMENTS; i++) {
+    const t = i / NUM_SEGMENTS;
+    const pos = trackCurve.getPointAt(t);
+    const tan = trackCurve.getTangentAt(t).normalize();
 
-    // Compute curvature to bank turns
-    const dt = 0.005;
+    // Parallel transport: project previous normal onto plane perpendicular to tangent
+    let normal = prevNormal.clone().sub(
+      tan.clone().multiplyScalar(prevNormal.dot(tan))
+    ).normalize();
+
+    // If degenerate, fall back to world up
+    if (normal.lengthSq() < 0.01) {
+      normal = new THREE.Vector3(0, 1, 0);
+      normal.sub(tan.clone().multiplyScalar(normal.dot(tan))).normalize();
+    }
+
+    const binormal = new THREE.Vector3().crossVectors(tan, normal).normalize();
+
+    // --- BANKING ---
+    // Compute curvature in the XZ plane (horizontal turning).
+    // Bank the normal towards the inside of the turn.
+    const dt = 0.002;
     const t0 = Math.max(0, t - dt);
     const t1 = Math.min(1, t + dt);
-    const tan0 = curve.getTangentAt(t0).normalize();
-    const tan1 = curve.getTangentAt(t1).normalize();
+    const tan0 = trackCurve.getTangentAt(t0);
+    const tan1 = trackCurve.getTangentAt(t1);
     const curvatureVec = tan1.clone().sub(tan0);
-    // Cross tangent with up → side direction; dot with curvature → signed curvature
-    const side = new THREE.Vector3().crossVectors(tangent, new THREE.Vector3(0, 1, 0)).normalize();
-    const signedCurvature = curvatureVec.dot(side);
-    const bankAngle = THREE.MathUtils.clamp(signedCurvature * 8, -0.4, 0.4); // max ~23°
+    // Project curvature onto binormal to get banking amount
+    const bankAmount = curvatureVec.dot(binormal) * 12; // Amplify
+    const clampedBank = Math.max(-0.6, Math.min(0.6, bankAmount));
 
-    // Build rotation frame
-    let normal = new THREE.Vector3(0, 1, 0);
-    let binormal = new THREE.Vector3().crossVectors(tangent, normal).normalize();
-    if (binormal.lengthSq() < 0.001) {
-      binormal.set(1, 0, 0);
-    }
-    normal.crossVectors(binormal, tangent).normalize();
-
-    const rotMat = new THREE.Matrix4().makeBasis(binormal, normal, tangent);
-    const baseQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
-
-    // Apply banking
-    const bankQuat = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(0, 0, 1), bankAngle
-    );
-    const quat = baseQuat.clone().multiply(bankQuat);
-
-    // Gentle undulation on straight sections (low curvature)
-    const isRelativelyStraight = Math.abs(signedCurvature) < 0.02;
-    const undulationAngle = isRelativelyStraight ? Math.sin(i * 0.7) * 0.04 : 0; // ~2-3°
-    if (undulationAngle !== 0) {
-      const undulationQ = new THREE.Quaternion().setFromAxisAngle(
-        new THREE.Vector3(1, 0, 0), undulationAngle
-      );
-      quat.multiply(undulationQ);
+    // Rotate normal around tangent by bank angle
+    if (Math.abs(clampedBank) > 0.01) {
+      const bankQuat = new THREE.Quaternion().setFromAxisAngle(tan, clampedBank);
+      normal.applyQuaternion(bankQuat);
+      binormal.crossVectors(tan, normal).normalize();
     }
 
-    // ── Floor ──
-    createBox(floorW, thickness, segLen, pos.clone(), quat, trackColor);
-
-    // ── Left Wall (tilted inward ~40°) ──
-    const leftTiltAngle = -Math.PI / 4.5; // ~40° inward
-    const leftWallOff = new THREE.Vector3(-floorW / 2 - 0.05, wallH / 2.5, 0);
-    leftWallOff.applyQuaternion(quat);
-    const leftWallPos = pos.clone().add(leftWallOff);
-    const leftTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), leftTiltAngle);
-    const leftQuat = quat.clone().multiply(leftTilt);
-    // Outer wall in curves is extra tall
-    const leftExtraH = signedCurvature > 0.01 ? wallH * 0.5 : 0;
-    createBox(thickness, wallH + leftExtraH, segLen, leftWallPos, leftQuat, wallColor, true);
-
-    // ── Right Wall (tilted inward ~40°) ──
-    const rightTiltAngle = Math.PI / 4.5;
-    const rightWallOff = new THREE.Vector3(floorW / 2 + 0.05, wallH / 2.5, 0);
-    rightWallOff.applyQuaternion(quat);
-    const rightWallPos = pos.clone().add(rightWallOff);
-    const rightTilt = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rightTiltAngle);
-    const rightQuat = quat.clone().multiply(rightTilt);
-    const rightExtraH = signedCurvature < -0.01 ? wallH * 0.5 : 0;
-    createBox(thickness, wallH + rightExtraH, segLen, rightWallPos, rightQuat, wallColor, true);
+    prevNormal = normal.clone();
+    frames.push({ pos, tan, normal, binormal });
   }
 
-  // ── Finish: large enclosed bowl ──
-  const endP = pathPoints[pathPoints.length - 1];
-  createBox(14, 1, 14, new THREE.Vector3(endP.x, endP.y - 1, endP.z), new THREE.Quaternion(), 0x334455);
-  createBox(1, 5, 14, new THREE.Vector3(endP.x - 7, endP.y + 1.5, endP.z), new THREE.Quaternion(), 0x334455, true);
-  createBox(1, 5, 14, new THREE.Vector3(endP.x + 7, endP.y + 1.5, endP.z), new THREE.Quaternion(), 0x334455, true);
-  createBox(15, 5, 1, new THREE.Vector3(endP.x, endP.y + 1.5, endP.z - 7), new THREE.Quaternion(), 0x334455, true);
-  createBox(15, 5, 1, new THREE.Vector3(endP.x, endP.y + 1.5, endP.z + 7), new THREE.Quaternion(), 0x334455, true);
+  // Now build each rib segment
+  for (let i = 0; i < NUM_SEGMENTS; i++) {
+    const f0 = frames[i];
+    const f1 = frames[i + 1];
+
+    // Midpoint & averaged frame
+    const midPos = f0.pos.clone().add(f1.pos).multiplyScalar(0.5);
+    const midTan = f0.tan.clone().add(f1.tan).normalize();
+    const midNorm = f0.normal.clone().add(f1.normal).normalize();
+    const midBin = f0.binormal.clone().add(f1.binormal).normalize();
+
+    // Segment length (distance between consecutive points, with slight overlap)
+    const segLen = f0.pos.distanceTo(f1.pos) * 1.08;
+
+    // Build rotation matrix from frame (binormal=X, normal=Y, tangent=Z)
+    const rotMat = new THREE.Matrix4().makeBasis(midBin, midNorm, midTan);
+    const baseQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
+
+    // 1. FLOOR
+    addTrackPiece(
+      TRACK_W, FLOOR_THICK, segLen,
+      midPos.clone(),
+      baseQuat.clone(),
+      matFloor, false
+    );
+
+    // 2. LEFT BANKED WALL
+    // Position: offset left by W/2, up by wallH/2 projected, tilted inward
+    {
+      const wallCenter = midPos.clone()
+        .add(midBin.clone().multiplyScalar(-TRACK_W / 2 - WALL_H * 0.35))
+        .add(midNorm.clone().multiplyScalar(WALL_H * 0.35));
+      // Rotate baseQuat by WALL_ANGLE around the local Z axis (tangent)
+      const tiltQ = new THREE.Quaternion().setFromAxisAngle(midTan, WALL_ANGLE);
+      const wallQuat = tiltQ.clone().multiply(baseQuat);
+      addTrackPiece(
+        WALL_H, WALL_THICK, segLen,
+        wallCenter, wallQuat, matWall, true
+      );
+    }
+
+    // 3. RIGHT BANKED WALL
+    {
+      const wallCenter = midPos.clone()
+        .add(midBin.clone().multiplyScalar(TRACK_W / 2 + WALL_H * 0.35))
+        .add(midNorm.clone().multiplyScalar(WALL_H * 0.35));
+      const tiltQ = new THREE.Quaternion().setFromAxisAngle(midTan, -WALL_ANGLE);
+      const wallQuat = tiltQ.clone().multiply(baseQuat);
+      addTrackPiece(
+        WALL_H, WALL_THICK, segLen,
+        wallCenter, wallQuat, matWall, true
+      );
+    }
+
+    // 4. LEFT VERTICAL SAFETY RAIL
+    {
+      const railCenter = midPos.clone()
+        .add(midBin.clone().multiplyScalar(-TRACK_W / 2 - WALL_H * 0.7))
+        .add(midNorm.clone().multiplyScalar(WALL_H * 0.7 + RAIL_H * 0.4));
+      addTrackPiece(
+        RAIL_THICK, RAIL_H, segLen,
+        railCenter, baseQuat.clone(), matRail, true
+      );
+    }
+
+    // 5. RIGHT VERTICAL SAFETY RAIL
+    {
+      const railCenter = midPos.clone()
+        .add(midBin.clone().multiplyScalar(TRACK_W / 2 + WALL_H * 0.7))
+        .add(midNorm.clone().multiplyScalar(WALL_H * 0.7 + RAIL_H * 0.4));
+      addTrackPiece(
+        RAIL_THICK, RAIL_H, segLen,
+        railCenter, baseQuat.clone(), matRail, true
+      );
+    }
+  }
+
+  // --- START PLATFORM ---
+  {
+    const sp = controlPoints[0];
+    const q = new THREE.Quaternion();
+    // Wide platform at the top
+    addTrackPiece(6, 0.5, 8, new THREE.Vector3(sp.x, sp.y - 0.25, sp.z + 2), q, matStart, false);
+    // Walls around start
+    addTrackPiece(0.3, 3, 8, new THREE.Vector3(sp.x - 3.15, sp.y + 1.2, sp.z + 2), q, matWall, true);
+    addTrackPiece(0.3, 3, 8, new THREE.Vector3(sp.x + 3.15, sp.y + 1.2, sp.z + 2), q, matWall, true);
+    addTrackPiece(6.6, 3, 0.3, new THREE.Vector3(sp.x, sp.y + 1.2, sp.z + 6.15), q, matWall, true);
+  }
+
+  // --- FINISH COLLECTION BOWL ---
+  {
+    const ep = controlPoints[controlPoints.length - 1];
+    const q = new THREE.Quaternion();
+    const bx = ep.x, by = ep.y - 2, bz = ep.z - 2;
+    // Floor
+    addTrackPiece(10, 0.5, 10, new THREE.Vector3(bx, by, bz), q, matFinish, false);
+    // 4 walls
+    addTrackPiece(0.4, 4, 10, new THREE.Vector3(bx - 5, by + 2, bz), q, matWall, true);
+    addTrackPiece(0.4, 4, 10, new THREE.Vector3(bx + 5, by + 2, bz), q, matWall, true);
+    addTrackPiece(10.8, 4, 0.4, new THREE.Vector3(bx, by + 2, bz + 5), q, matWall, true);
+    addTrackPiece(10.8, 4, 0.4, new THREE.Vector3(bx, by + 2, bz - 5), q, matWall, true);
+  }
+
+  // --- FINISH LINE MARKERS ---
+  {
+    const ep = controlPoints[controlPoints.length - 1];
+    // Get the frame at the end to orient finish decorations
+    const fEnd = frames[frames.length - 3];
+    const finishMat = new THREE.MeshStandardMaterial({
+      color: 0xffd700, emissive: 0xffd700, emissiveIntensity: 0.5,
+    });
+    // Checkerboard strip across track at ~95% point
+    const t95 = 0.96;
+    const finPos = trackCurve.getPointAt(t95);
+    for (let c = 0; c < 6; c++) {
+      const checkerMat = new THREE.MeshStandardMaterial({
+        color: c % 2 === 0 ? 0x111111 : 0xffffff,
+        emissive: c % 2 === 0 ? 0x000000 : 0xffd700,
+        emissiveIntensity: 0.2,
+      });
+      // Place across the track width
+      const frameAt = frames[Math.floor(t95 * NUM_SEGMENTS)];
+      const cp = finPos.clone()
+        .add(frameAt.binormal.clone().multiplyScalar((c - 2.5) * 0.5));
+      const mesh = addVisBox(0.5, 0.05, 0.3, cp, baseQuatAt(frameAt), checkerMat);
+      mesh.castShadow = false;
+    }
+  }
+
+  // --- SUPPORT COLUMNS (every ~20 segments) ---
+  for (let i = 10; i < NUM_SEGMENTS; i += 20) {
+    const f = frames[i];
+    const groundY = -75; // Way below
+    const colH = f.pos.y - groundY;
+    if (colH < 2) continue;
+    const colMat = new THREE.MeshStandardMaterial({
+      color: 0x445566, metalness: 0.6, roughness: 0.3,
+    });
+    const colPos = new THREE.Vector3(f.pos.x, f.pos.y - colH / 2, f.pos.z);
+    addVisBox(0.5, colH, 0.5, colPos, new THREE.Quaternion(), colMat);
+  }
 }
 
+function baseQuatAt(frame) {
+  const m = new THREE.Matrix4().makeBasis(frame.binormal, frame.normal, frame.tan);
+  return new THREE.Quaternion().setFromRotationMatrix(m);
+}
+
+// Build it!
+buildLugeTrack();
+
 // ============================================================
-//  MARBLE LOGIC
+//  MARBLES
 // ============================================================
 
-function spawnMarble(idx) {
-  const team = TEAMS[idx];
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(MARBLE_RADIUS, 32, 32),
-    new THREE.MeshStandardMaterial({ color: team.color, metalness: 0.9, roughness: 0.1 })
-  );
+function createMarbleMesh(teamColor) {
+  const geom = new THREE.SphereGeometry(MARBLE_RADIUS, 32, 32);
+  const mat = new THREE.MeshStandardMaterial({
+    color: teamColor,
+    metalness: 0.85,
+    roughness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
+
+  // Glass highlight ring
+  const ringGeom = new THREE.TorusGeometry(MARBLE_RADIUS * 0.7, MARBLE_RADIUS * 0.08, 8, 16);
+  const ringMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff, transparent: true, opacity: 0.3, metalness: 1, roughness: 0,
+  });
+  const ring = new THREE.Mesh(ringGeom, ringMat);
+  ring.rotation.x = Math.PI / 3;
+  mesh.add(ring);
+  return mesh;
+}
+
+function spawnMarble(teamIndex, xOff, zOff) {
+  const team = TEAMS[teamIndex % TEAMS.length];
+  const mesh = createMarbleMesh(team.color);
   scene.add(mesh);
 
   const body = new CANNON.Body({
-    mass: 1,
-    material: marbleMat,
+    mass: MARBLE_MASS,
     shape: new CANNON.Sphere(MARBLE_RADIUS),
+    material: marblePhysMat,
     linearDamping: 0.05,
-    angularDamping: 0.05
+    angularDamping: 0.1,
   });
-  
-  // Spawn in grid pattern on start platform
-  const row = Math.floor(idx / 3);
-  const col = idx % 3;
-  body.position.set( (col-1)*1.5, 41, 1 + row*1.5 );
+
+  const sp = controlPoints[0];
+  body.position.set(
+    sp.x + (xOff || 0) + (Math.random() - 0.5) * 0.5,
+    sp.y + 0.5 + Math.random() * 0.3,
+    sp.z + 2 + (zOff || 0) + (Math.random() - 0.5) * 0.3
+  );
   world.addBody(body);
 
-  marbles.push({ mesh, body, team, status: 'racing', idx });
+  const marble = {
+    body, mesh, team,
+    status: 'racing',
+    finishTime: null,
+    lastPos: body.position.clone(),
+    stuckSince: null,
+    teamIndex,
+  };
+  marbles.push(marble);
+  return marble;
 }
 
-function updateGame() {
-  // Leaderboard & Camera
-  if (marbles.length === 0) return;
+// ============================================================
+//  RACE MANAGEMENT
+// ============================================================
 
-  let leader = marbles[0];
-  let finishedCount = 0;
+function startRace() {
+  resetScene();
+  raceActive = true;
+  raceStartTime = performance.now();
+  finishOrder = [];
+
+  for (let i = 0; i < 8; i++) {
+    const row = Math.floor(i / 4);
+    const col = (i % 4) - 1.5;
+    spawnMarble(i, col * 0.9, row * 1.0);
+  }
+  nextTeamIndex = 8;
+
+  showAnnouncement('🏁 GO! GO! GO!', 2000);
+  updateLeaderboard();
+}
+
+function dropSingleMarble() {
+  spawnMarble(nextTeamIndex % TEAMS.length, 0, 0);
+  nextTeamIndex++;
+  if (!raceActive) {
+    raceActive = true;
+    raceStartTime = performance.now();
+    finishOrder = [];
+  }
+  updateLeaderboard();
+}
+
+function resetScene() {
+  marbles.forEach(m => {
+    world.removeBody(m.body);
+    scene.remove(m.mesh);
+  });
+  marbles = [];
+  finishOrder = [];
+  raceActive = false;
+  raceStartTime = 0;
+  nextTeamIndex = 0;
+  currentCameraTarget = null;
+  document.getElementById('timer-display').textContent = '0.00s';
+  document.getElementById('marble-list').innerHTML =
+    '<div style="color:rgba(255,255,255,0.3);font-size:12px;text-align:center;padding:8px">Press Start Race!</div>';
+}
+
+// ============================================================
+//  RACE LOGIC
+// ============================================================
+
+function checkFinishAndEliminate() {
+  const now = performance.now();
+  const elapsed = (now - raceStartTime) / 1000;
 
   marbles.forEach(m => {
-    // Camera target (lowest marble that hasn't finished/died)
-    if (m.status === 'racing') {
-      if (m.body.position.y < leader.body.position.y) leader = m;
-      
-      // Check finish
-      if (m.body.position.y < FINISH_Y && m.body.position.y > ELIMINATE_Y) {
-         m.status = 'finished';
-         finishOrder.push(m);
-         showToast(`${m.team.name} Finished! #${finishOrder.length}`);
+    if (m.status !== 'racing') return;
+    const pos = m.body.position;
+
+    // Finish
+    const ep = controlPoints[controlPoints.length - 1];
+    if (pos.y < ep.y + 3 && pos.y > ep.y - 10 &&
+        Math.abs(pos.x - ep.x) < 8 && Math.abs(pos.z - ep.z) < 8) {
+      m.status = 'finished';
+      m.finishTime = elapsed;
+      finishOrder.push(m);
+      if (finishOrder.length === 1) {
+        showAnnouncement(`🏆 ${m.team.name} WINS!`, 4000);
       }
-      // Check death
-      if (m.body.position.y < ELIMINATE_Y) {
-         m.status = 'eliminated';
+    }
+
+    // Elimination
+    if (pos.y < ELIMINATE_Y) {
+      m.status = 'eliminated';
+      m.finishTime = elapsed;
+      world.removeBody(m.body);
+      m.mesh.visible = false;
+    }
+
+    // Stuck detection
+    const dist = pos.distanceTo(m.lastPos);
+    if (dist < 0.04) {
+      if (!m.stuckSince) m.stuckSince = now;
+      if (now - m.stuckSince > STUCK_TIMEOUT) {
+        // Give it a nudge instead of eliminating
+        m.body.applyImpulse(
+          new CANNON.Vec3((Math.random()-0.5)*3, -2, (Math.random()-0.5)*3),
+          new CANNON.Vec3(0, 0, 0)
+        );
+        m.stuckSince = now; // Reset timer
       }
     } else {
-      finishedCount++;
+      m.stuckSince = null;
+      m.lastPos = pos.clone();
     }
   });
-
-  // Camera Follow
-  if (followCamera && leader) {
-    const p = leader.body.position;
-    // Smooth Lerp
-    const target = new THREE.Vector3(p.x, p.y, p.z);
-    const offset = new THREE.Vector3(10, 15, 15);
-    cameraTargetPos.lerp(target, 0.1);
-    camera.position.lerp(target.clone().add(offset), 0.05);
-    controls.target.copy(cameraTargetPos);
-  }
-
-  // Update UI
-  const ui = document.getElementById('marble-list');
-  if (ui) {
-    let html = '';
-    // Sort by status then Y position (race rank)
-    const sorted = [...marbles].sort((a,b) => {
-      if(a.status === 'finished' && b.status !== 'finished') return -1;
-      if(b.status === 'finished' && a.status !== 'finished') return 1;
-      if(a.status === 'finished') return finishOrder.indexOf(a) - finishOrder.indexOf(b);
-      return a.body.position.y - b.body.position.y; // Lower y is better
-    });
-    
-    sorted.forEach((m, i) => {
-      let stat = m.status === 'racing' ? 'Runs' : (m.status === 'finished' ? 'DONE' : 'X');
-      let rank = i + 1;
-      html += `<div>#${rank} <span style="color:#${new THREE.Color(m.team.color).getHexString()}">●</span> ${m.team.name} (${stat})</div>`;
-    });
-    ui.innerHTML = html;
-  }
 }
 
-function showToast(msg) {
+function getLeadingMarble() {
+  let leader = null;
+  let lowestY = Infinity;
+  marbles.forEach(m => {
+    if (m.status === 'racing' && m.body.position.y < lowestY && m.body.position.y > ELIMINATE_Y + 5) {
+      lowestY = m.body.position.y;
+      leader = m;
+    }
+  });
+  if (!leader) {
+    const racing = marbles.filter(m => m.status === 'racing');
+    if (racing.length > 0) leader = racing[0];
+  }
+  return leader;
+}
+
+// ============================================================
+//  UI
+// ============================================================
+
+function updateTimer() {
+  if (!raceActive) return;
+  const elapsed = (performance.now() - raceStartTime) / 1000;
+  document.getElementById('timer-display').textContent = elapsed.toFixed(2) + 's';
+}
+
+function updateLeaderboard() {
+  const list = document.getElementById('marble-list');
+  if (marbles.length === 0) return;
+
+  const sorted = [...marbles].sort((a, b) => {
+    if (a.status === 'finished' && b.status === 'finished') return a.finishTime - b.finishTime;
+    if (a.status === 'finished') return -1;
+    if (b.status === 'finished') return 1;
+    if (a.status === 'racing' && b.status === 'racing') return a.body.position.y - b.body.position.y;
+    if (a.status === 'racing') return -1;
+    if (b.status === 'racing') return 1;
+    return 0;
+  });
+
+  let html = '';
+  sorted.forEach((m, idx) => {
+    const color = '#' + new THREE.Color(m.team.color).getHexString();
+    let statusText = '', statusClass = m.status, positionBadge = '';
+
+    if (m.status === 'finished') {
+      const place = finishOrder.indexOf(m) + 1;
+      const pc = place <= 3 ? ` p${place}` : '';
+      positionBadge = `<span class="position-badge${pc}">#${place}</span>`;
+      statusText = m.finishTime.toFixed(2) + 's';
+    } else if (m.status === 'eliminated') {
+      statusText = '💀 OUT';
+    } else {
+      statusText = '🏃 Racing';
+    }
+
+    html += `<div class="marble-entry">
+      ${positionBadge}
+      <span class="marble-dot" style="background:${color}"></span>
+      <span class="marble-name">${m.team.name}</span>
+      <span class="marble-status ${statusClass}">${statusText}</span>
+    </div>`;
+  });
+  list.innerHTML = html;
+}
+
+let announcementTimeout = null;
+function showAnnouncement(text, duration) {
   const el = document.getElementById('announcement');
-  if(el) {
-    el.innerText = msg;
-    el.style.opacity = 1;
-    setTimeout(() => el.style.opacity = 0, 3000);
-  }
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('show');
+  if (announcementTimeout) clearTimeout(announcementTimeout);
+  announcementTimeout = setTimeout(() => el.classList.remove('show'), duration);
 }
 
 // ============================================================
-//  INIT
+//  CAMERA
 // ============================================================
 
-buildTrack();
+function updateCamera() {
+  if (!followCamera) return;
+  const leader = getLeadingMarble();
+  if (leader) {
+    const pos = leader.body.position;
+    if (pos.y > ELIMINATE_Y) {
+      if (!currentCameraTarget) {
+        currentCameraTarget = new THREE.Vector3(pos.x, pos.y, pos.z);
+      }
+      currentCameraTarget.lerp(new THREE.Vector3(pos.x, pos.y, pos.z), 0.08);
+    }
+  }
+  if (currentCameraTarget) {
+    const offset = new THREE.Vector3(18, 14, 18);
+    const desiredPos = currentCameraTarget.clone().add(offset);
+    camera.position.lerp(desiredPos, 0.04);
+    controls.target.lerp(currentCameraTarget, 0.06);
+  }
+}
 
-// Controls
-document.getElementById('btn-race').onclick = () => {
-  marbles.forEach(m => { scene.remove(m.mesh); world.removeBody(m.body); });
-  marbles = [];
-  finishOrder = [];
-  TEAMS.forEach((t, i) => spawnMarble(i));
-  raceActive = true;
-  raceStartTime = Date.now();
-};
-
-document.getElementById('btn-reset').onclick = () => {
-  marbles.forEach(m => { scene.remove(m.mesh); world.removeBody(m.body); });
-  marbles = [];
-  finishOrder = [];
-};
-
-document.getElementById('btn-camera').onclick = () => {
+function toggleCamera() {
   followCamera = !followCamera;
-};
+  document.getElementById('btn-camera').textContent =
+    followCamera ? '📷 Free Camera' : '📷 Follow Leader';
+}
 
-// Animation Loop
+// ============================================================
+//  BUTTON HANDLERS
+// ============================================================
+
+document.getElementById('btn-race').addEventListener('click', startRace);
+document.getElementById('btn-drop').addEventListener('click', dropSingleMarble);
+document.getElementById('btn-reset').addEventListener('click', resetScene);
+document.getElementById('btn-camera').addEventListener('click', toggleCamera);
+
+// ============================================================
+//  ANIMATION LOOP
+// ============================================================
+
 const clock = new THREE.Clock();
+let leaderboardTimer = 0;
 
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const delta = Math.min(clock.getDelta(), 0.05);
 
-  // Substep physics for smooth high speed collision
-  for(let i=0; i<PHYSICS_STEPS; i++) {
-    world.step(dt / PHYSICS_STEPS);
+  // Physics: multiple sub-steps for stability at high speed
+  const subSteps = 3;
+  for (let s = 0; s < subSteps; s++) {
+    world.step(1 / 180, delta / subSteps);
   }
 
-  // Sync visual
+  // Sync
   marbles.forEach(m => {
-    m.mesh.position.copy(m.body.position);
-    m.mesh.quaternion.copy(m.body.quaternion);
+    if (m.status === 'racing') {
+      m.mesh.position.copy(m.body.position);
+      m.mesh.quaternion.copy(m.body.quaternion);
+    }
   });
 
-  updateGame();
+  if (raceActive) {
+    checkFinishAndEliminate();
+    updateTimer();
+    leaderboardTimer += delta;
+    if (leaderboardTimer > 0.3) {
+      updateLeaderboard();
+      leaderboardTimer = 0;
+    }
+
+    const stillRacing = marbles.filter(m => m.status === 'racing').length;
+    if (stillRacing === 0 && marbles.length > 0) {
+      raceActive = false;
+      if (finishOrder.length > 0) {
+        showAnnouncement(`🏆 ${finishOrder[0].team.name} is the Champion!`, 5000);
+      } else {
+        showAnnouncement('💀 Everyone eliminated!', 3000);
+      }
+      updateLeaderboard();
+    }
+  }
+
+  updateCamera();
   controls.update();
+
+  // Rotate stars subtly
+  scene.children.forEach(c => {
+    if (c instanceof THREE.Points) c.rotation.y += 0.00005;
+  });
+
   renderer.render(scene, camera);
 }
 
 animate();
 
-// Resize
+// ============================================================
+//  RESIZE
+// ============================================================
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
