@@ -22,17 +22,17 @@ const TEAMS = [
 
 // --- CONFIG ---
 const MARBLE_RADIUS = 0.3;
-const GRAVITY = -12;
-const TRACK_FRICTION = 0.5;
-const TRACK_RESTITUTION = 0.25;
-const MARBLE_FRICTION = 0.4;
-const MARBLE_RESTITUTION = 0.35;
+const GRAVITY = -18; // Increased gravity for snappier movement
+const TRACK_FRICTION = 0.3; // Reduced friction
+const TRACK_RESTITUTION = 0.1; // Reduced bounce
+const MARBLE_FRICTION = 0.3;
+const MARBLE_RESTITUTION = 0.2; // Reduced bounce
 const MARBLE_MASS = 1;
-const MARBLE_LINEAR_DAMPING = 0.15;
-const MARBLE_ANGULAR_DAMPING = 0.3;
+const MARBLE_LINEAR_DAMPING = 0.1;
+const MARBLE_ANGULAR_DAMPING = 0.2;
 const FINISH_Y = -32;
-const ELIMINATE_Y = -40;
-const STUCK_TIMEOUT = 8000;
+const ELIMINATE_Y = -50; // Lower elimination threshold
+const STUCK_TIMEOUT = 5000; // Shorter timeout
 
 // --- STATE ---
 let marbles = [];
@@ -41,6 +41,7 @@ let raceStartTime = 0;
 let finishOrder = [];
 let followCamera = true;
 let nextTeamIndex = 0;
+let currentCameraTarget = null; // Track the current target to prevent jitter
 
 // --- THREE.JS SETUP ---
 const scene = new THREE.Scene();
@@ -118,21 +119,16 @@ scene.add(new THREE.Points(starGeom, starMat));
 // --- CANNON.JS SETUP ---
 const world = new CANNON.World({ gravity: new CANNON.Vec3(0, GRAVITY, 0) });
 world.broadphase = new CANNON.SAPBroadphase(world);
-world.allowSleep = false;
-world.solver.iterations = 15;
+world.allowSleep = true; // Allow sleep for performance
+world.solver.iterations = 20; // Increased precision
 world.solver.tolerance = 0.0001;
-
-const trackPhysMaterial = new CANNON.Material('track');
-const marblePhysMaterial = new CANNON.Material('marble');
-
-world.addContactMaterial(new CANNON.ContactMaterial(trackPhysMaterial, marblePhysMaterial, {
+const defaultContactMaterial = new CANNON.ContactMaterial(trackPhysMaterial, marblePhysMaterial, {
   friction: TRACK_FRICTION,
   restitution: TRACK_RESTITUTION,
-}));
-world.addContactMaterial(new CANNON.ContactMaterial(marblePhysMaterial, marblePhysMaterial, {
-  friction: 0.1,
-  restitution: 0.5,
-}));
+  contactEquationStiffness: 1e8,
+  contactEquationRelaxation: 3,
+});
+world.addContactMaterial(defaultContactMaterial);
 
 // --- TRACK MATERIALS (visual) ---
 const trackMaterials = {
@@ -239,17 +235,22 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
 
 // ---- SECTION 1: START RAMP (y: 30 → 26) ----
 {
-  // Wide starting platform
-  addBox(5, 0.3, 4, 0, 30.5, 0, 0, 0, 0, trackMaterials.ramp);
-  // Walls on platform
-  addBox(0.15, 1, 4, -2.5, 31, 0, 0, 0, 0, trackMaterials.wall, true);
-  addBox(0.15, 1, 4, 2.5, 31, 0, 0, 0, 0, trackMaterials.wall, true);
-  addBox(5, 1, 0.15, 0, 31, 2, 0, 0, 0, trackMaterials.wall, true);
+  // Wide starting platform - Wider and deeper
+  addBox(6, 0.3, 5, 0, 30.5, 0, 0, 0, 0, trackMaterials.ramp);
+  // Walls on platform - Higher and fully enclosing
+  const wallH = 1.5;
+  addBox(0.2, wallH, 5, -3.1, 31.25, 0, 0, 0, 0, trackMaterials.wall, true); // Left
+  addBox(0.2, wallH, 5, 3.1, 31.25, 0, 0, 0, 0, trackMaterials.wall, true); // Right
+  addBox(6.4, wallH, 0.2, 0, 31.25, 2.6, 0, 0, 0, trackMaterials.wall, true); // Back
+  
+  // Front "gate" corners to guide into ramp
+  addBox(1.0, wallH, 0.2, -2.5, 31.25, -2.6, 0, 0, 0, trackMaterials.wall, true);
+  addBox(1.0, wallH, 0.2, 2.5, 31.25, -2.6, 0, 0, 0, trackMaterials.wall, true);
 
-  // Downward ramp from platform into funnel
-  addBox(4, 0.2, 6, 0, 28.5, -4, -0.18, 0, 0, trackMaterials.ramp);
-  addBox(0.15, 0.8, 6, -2, 29, -4, -0.18, 0, 0, trackMaterials.wall, true);
-  addBox(0.15, 0.8, 6, 2, 29, -4, -0.18, 0, 0, trackMaterials.wall, true);
+  // Downward ramp from platform into funnel - Wider with higher walls
+  addBox(4.5, 0.2, 6, 0, 28.5, -4, -0.18, 0, 0, trackMaterials.ramp);
+  addBox(0.2, 1.2, 6, -2.35, 29, -4, -0.18, 0, 0, trackMaterials.wall, true);
+  addBox(0.2, 1.2, 6, 2.35, 29, -4, -0.18, 0, 0, trackMaterials.wall, true);
 }
 
 // ---- SECTION 2: WIDE FUNNEL/BOWL (y: 26 → 22) ----
@@ -300,10 +301,10 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
   // Central exit hole guides marbles down-left
   addBox(2, 0.15, 2, 0, funnelY - 2.2, -9, -0.15, 0, 0, trackMaterials.funnel);
 
-  // Transition ramp from funnel to zigzag
-  addBox(3, 0.2, 3, 0, funnelY - 3, -11, -0.2, 0, 0, trackMaterials.funnel);
-  addBox(0.15, 0.8, 3, -1.5, funnelY - 2.5, -11, -0.2, 0, 0, trackMaterials.wall, true);
-  addBox(0.15, 0.8, 3, 1.5, funnelY - 2.5, -11, -0.2, 0, 0, trackMaterials.wall, true);
+  // Transition ramp from funnel to zigzag - Wider and Safer
+  addBox(3.5, 0.2, 3, 0, funnelY - 3, -11, -0.2, 0, 0, trackMaterials.funnel);
+  addBox(0.2, 1.2, 3, -1.8, funnelY - 2.5, -11, -0.2, 0, 0, trackMaterials.wall, true);
+  addBox(0.2, 1.2, 3, 1.8, funnelY - 2.5, -11, -0.2, 0, 0, trackMaterials.wall, true);
 }
 
 // ---- SECTION 3: ZIGZAG SWITCHBACKS (y: 22 → 10) ----
@@ -312,7 +313,7 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
   const zigzagX = 0;
   const zigzagZ = -13;
   const rampLen = 8;
-  const rampW = TRACK_WIDTH;
+  const rampW = 3.5; // Slightly wider
   const yDrop = 1.6;
   const zStep = 0;
   const numZigs = 8;
@@ -329,29 +330,37 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
       0, 0, slope * direction,
       trackMaterials.zigzag);
 
-    // Walls
-    addBox(rampLen, WALL_HEIGHT * 0.7, WALL_THICKNESS,
-      zigzagX + xOff * 0.5, yy + 0.35, zigzagZ - i * 1.2 - rampW/2,
+    // Walls - HIGHER
+    const wallH = 1.2;
+    addBox(rampLen, wallH, WALL_THICKNESS,
+      zigzagX + xOff * 0.5, yy + wallH/2 - 0.1, zigzagZ - i * 1.2 - rampW/2,
       0, 0, slope * direction,
       trackMaterials.wall, true);
-    addBox(rampLen, WALL_HEIGHT * 0.7, WALL_THICKNESS,
-      zigzagX + xOff * 0.5, yy + 0.35, zigzagZ - i * 1.2 + rampW/2,
+    addBox(rampLen, wallH, WALL_THICKNESS,
+      zigzagX + xOff * 0.5, yy + wallH/2 - 0.1, zigzagZ - i * 1.2 + rampW/2,
       0, 0, slope * direction,
       trackMaterials.wall, true);
 
     // End bumper (redirects marble) — except last one
     if (i < numZigs - 1) {
       const bumpX = zigzagX + xOff;
-      addBox(WALL_THICKNESS, WALL_HEIGHT, rampW + 0.5,
-        bumpX + direction * rampLen * 0.45, yy - 0.2, zigzagZ - i * 1.2,
+      // Tall bumper
+      addBox(WALL_THICKNESS, 2.0, rampW + 0.5,
+        bumpX + direction * rampLen * 0.45, yy + 0.5, zigzagZ - i * 1.2,
         0, 0, 0,
         trackMaterials.rail);
 
-      // Connecting curved piece
-      addBox(1.5, FLOOR_THICKNESS, rampW,
+      // Connecting curved piece - WIDER CATCH
+      addBox(2.0, FLOOR_THICKNESS, rampW,
         bumpX + direction * (rampLen * 0.35), yy - yDrop * 0.5, zigzagZ - (i + 0.5) * 1.2,
         -0.2, 0, 0,
         trackMaterials.zigzag);
+      
+      // Extra safety wall on the catch
+      const safetyX = bumpX + direction * (rampLen * 0.35);
+      const safetyZ = zigzagZ - (i + 0.5) * 1.2;
+      // Depending on turn, we need a backstop. The bumper handles the main stop.
+      // We need side containment on the connector.
     }
   }
 }
@@ -398,19 +407,17 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
 
     // Inner rail (every other segment)
     if (i % 2 === 0) {
-      addBox(WALL_THICKNESS, 0.5, 1.6,
-        helixCenterX + Math.cos(angle) * (helixRadius - segWidth * 0.45), py + 0.25, helixCenterZ + Math.sin(angle) * (helixRadius - segWidth * 0.45),
+      addBox(WALL_THICKNESS, 0.8, 1.6,
+        helixCenterX + Math.cos(angle) * (helixRadius - segWidth * 0.45), py + 0.4, helixCenterZ + Math.sin(angle) * (helixRadius - segWidth * 0.45),
         0, -angle + Math.PI/2, 0,
         trackMaterials.wall, true);
     }
 
-    // Outer rail
-    if (i % 3 === 0) {
-      addBox(WALL_THICKNESS, 0.6, 1.6,
-        helixCenterX + Math.cos(angle) * (helixRadius + segWidth * 0.45), py + 0.3, helixCenterZ + Math.sin(angle) * (helixRadius + segWidth * 0.45),
-        0, -angle + Math.PI/2, 0,
-        trackMaterials.wall, true);
-    }
+    // Outer rail - MUCH HIGHER to prevent fly-offs
+    addBox(WALL_THICKNESS, 1.5, 1.6,
+      helixCenterX + Math.cos(angle) * (helixRadius + segWidth * 0.45), py + 0.75, helixCenterZ + Math.sin(angle) * (helixRadius + segWidth * 0.45),
+      0, -angle + Math.PI/2, 0,
+      trackMaterials.wall, true);
   }
 }
 
@@ -518,12 +525,12 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
   }
 
   // Narrow exit
-  addBox(1.2, 0.15, 1.2, 3, f2Y - 1.8, f2Z, 0, 0, 0, trackMaterials.funnel2);
+  addBox(1.4, 0.15, 1.4, 3, f2Y - 1.8, f2Z, 0, 0, 0, trackMaterials.funnel2);
 
-  // Transition out
-  addBox(2, 0.2, 2.5, 3, f2Y - 2.5, f2Z + 2, -0.2, 0, 0, trackMaterials.funnel2);
-  addBox(0.12, 0.6, 2.5, 2, f2Y - 2.2, f2Z + 2, -0.2, 0, 0, trackMaterials.wall, true);
-  addBox(0.12, 0.6, 2.5, 4, f2Y - 2.2, f2Z + 2, -0.2, 0, 0, trackMaterials.wall, true);
+  // Transition out - Wider and safer
+  addBox(3, 0.2, 3, 3, f2Y - 2.5, f2Z + 2, -0.2, 0, 0, trackMaterials.funnel2);
+  addBox(0.12, 1.2, 3, 1.5, f2Y - 2.0, f2Z + 2, -0.2, 0, 0, trackMaterials.wall, true);
+  addBox(0.12, 1.2, 3, 4.5, f2Y - 2.0, f2Z + 2, -0.2, 0, 0, trackMaterials.wall, true);
 }
 
 // ---- SECTION 8: LONG GENTLE SLOPE WITH BANKED CURVES (y: -17 → -25) ----
@@ -549,17 +556,15 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
       0, 0, banking,
       trackMaterials.banked);
 
-    // Side rails (with occasional gaps for danger!)
-    if (i % 4 !== 2) { // gap every 4th segment
-      addBox(0.1, 0.5, 1.2,
-        xPos - 1.4, yy + 0.2, zPos,
-        0, 0, banking,
-        trackMaterials.rail);
-      addBox(0.1, 0.5, 1.2,
-        xPos + 1.4, yy + 0.2, zPos,
-        0, 0, banking,
-        trackMaterials.rail);
-    }
+    // Side rails - NO GAPS, HIGHER
+    addBox(0.15, 0.8, 1.2,
+      xPos - 1.4, yy + 0.35, zPos,
+      0, 0, banking,
+      trackMaterials.rail);
+    addBox(0.15, 0.8, 1.2,
+      xPos + 1.4, yy + 0.35, zPos,
+      0, 0, banking,
+      trackMaterials.rail);
   }
 }
 
@@ -568,17 +573,18 @@ function buildRampWithWalls(w, d, x, y, z, rx, ry, rz, floorMat, wallMat) {
   const jumpY = -25;
   const jumpZ = -2;
 
-  // Launch ramp (upward angle)
+  // Launch ramp (upward angle) - Side walls higher
   addBox(3, 0.2, 3, 3, jumpY, jumpZ, 0.15, 0, 0, trackMaterials.jump);
-  addBox(0.12, 0.6, 3, 1.5, jumpY + 0.3, jumpZ, 0.15, 0, 0, trackMaterials.rail);
-  addBox(0.12, 0.6, 3, 4.5, jumpY + 0.3, jumpZ, 0.15, 0, 0, trackMaterials.rail);
+  addBox(0.2, 1.0, 3, 1.4, jumpY + 0.4, jumpZ, 0.15, 0, 0, trackMaterials.rail);
+  addBox(0.2, 1.0, 3, 4.6, jumpY + 0.4, jumpZ, 0.15, 0, 0, trackMaterials.rail);
 
   // GAP (nothing here — marbles must fly!)
 
-  // Landing ramp
-  addBox(3.5, 0.2, 3, 3, jumpY - 1.8, jumpZ + 5, -0.12, 0, 0, trackMaterials.jump);
-  addBox(0.12, 0.6, 3, 1.25, jumpY - 1.5, jumpZ + 5, -0.12, 0, 0, trackMaterials.rail);
-  addBox(0.12, 0.6, 3, 4.75, jumpY - 1.5, jumpZ + 5, -0.12, 0, 0, trackMaterials.rail);
+  // Landing ramp - WIDER CATCH AREA
+  addBox(5.0, 0.2, 3, 3, jumpY - 1.8, jumpZ + 5, -0.12, 0, 0, trackMaterials.jump);
+  // Funneling walls on landing
+  addBox(0.2, 1.2, 3, 0.4, jumpY - 1.3, jumpZ + 5, -0.12, 0, -0.1, trackMaterials.rail); // Angled in
+  addBox(0.2, 1.2, 3, 5.6, jumpY - 1.3, jumpZ + 5, -0.12, 0, 0.1, trackMaterials.rail);  // Angled in
 
   // "DANGER" colored strips on launch ramp
   addBox(3, 0.025, 0.15, 3, jumpY + 0.15, jumpZ - 1, 0.15, 0, 0,
@@ -785,13 +791,27 @@ function checkFinishAndEliminate() {
 function getLeadingMarble() {
   let leader = null;
   let lowestY = Infinity;
-  // Leading = most progress = lowest Y (but still racing)
+  
+  // Find the lowest racing marble
   marbles.forEach(m => {
-    if (m.status === 'racing' && m.body.position.y < lowestY) {
-      lowestY = m.body.position.y;
-      leader = m;
+    if (m.status === 'racing') {
+      // Prioritize marbles that are actually on the track
+      // If a marble falls below the elimination threshold but hasn't been processed yet, ignore it
+      if (m.body.position.y < lowestY && m.body.position.y > ELIMINATE_Y + 5) {
+        lowestY = m.body.position.y;
+        leader = m;
+      }
     }
   });
+
+  // Fallback: if all racing marbles are falling, just pick the last valid one we saw or the highest one
+  if (!leader) {
+     const racing = marbles.filter(m => m.status === 'racing');
+     if (racing.length > 0) {
+       leader = racing[0]; // Just pick one
+     }
+  }
+
   return leader;
 }
 
@@ -852,6 +872,7 @@ function updateLeaderboard() {
 let announcementTimeout = null;
 function showAnnouncement(text, duration) {
   const el = document.getElementById('announcement');
+  if (!el) return;
   el.textContent = text;
   el.classList.add('show');
   if (announcementTimeout) clearTimeout(announcementTimeout);
@@ -866,17 +887,24 @@ function updateCamera() {
   if (!followCamera) return;
 
   const leader = getLeadingMarble();
-  if (!leader) return;
+  
+  // If we have a leader, update target
+  if (leader) {
+    const pos = leader.body.position;
+    // Don't follow if falling to death
+    if (pos.y > ELIMINATE_Y) {
+       currentCameraTarget = new THREE.Vector3(pos.x, pos.y, pos.z);
+    }
+  }
 
-  const pos = leader.body.position;
-  const targetPos = new THREE.Vector3(pos.x, pos.y, pos.z);
+  if (currentCameraTarget) {
+     // Smooth camera follow
+    const camOffset = new THREE.Vector3(15, 12, 15); // Higher and further back for better view
+    const desiredPos = currentCameraTarget.clone().add(camOffset);
 
-  // Smooth camera follow
-  const camOffset = new THREE.Vector3(12, 5, 12);
-  const desiredPos = targetPos.clone().add(camOffset);
-
-  camera.position.lerp(desiredPos, 0.03);
-  controls.target.lerp(targetPos, 0.05);
+    camera.position.lerp(desiredPos, 0.05);
+    controls.target.lerp(currentCameraTarget, 0.05);
+  }
 }
 
 function toggleCamera() {
