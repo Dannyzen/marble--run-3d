@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Marble Run - Eliezer Edition</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; pointer-events: none; }
+        button { pointer-events: auto; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>Marble Run 3D</h1>
+        <p>Marbles: <span id="count">0</span></p>
+        <button onclick="spawnMarble()">Drop Marble</button>
+        <button onclick="resetScene()">Reset</button>
+    </div>
+    <script type="module" src="/main.js"></script>
+</body>
+</html>
