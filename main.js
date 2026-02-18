@@ -517,7 +517,7 @@ function createMarbleMesh(teamColor) {
   return mesh;
 }
 
-function spawnMarble(teamIndex, xOff, zOff) {
+function spawnMarble(teamIndex, xOff, zOff, applyImpulse) {
   const team = TEAMS[teamIndex % TEAMS.length];
   const mesh = createMarbleMesh(team.color);
   scene.add(mesh);
@@ -531,12 +531,20 @@ function spawnMarble(teamIndex, xOff, zOff) {
   });
 
   const sp = controlPoints[0];
+  // Staggered starting positions on the platform
   body.position.set(
-    sp.x + (xOff || 0) + (Math.random() - 0.5) * 0.5,
-    sp.y + 0.5 + Math.random() * 0.3,
-    sp.z + 2 + (zOff || 0) + (Math.random() - 0.5) * 0.3
+    sp.x + (xOff || 0),
+    sp.y + 0.5,
+    sp.z + 4 + (zOff || 0)
   );
   world.addBody(body);
+
+  if (applyImpulse) {
+    // Apply a forward physical impulse to clear the platform
+    // Direction is towards the first section of the track (negative Z)
+    const impulse = new CANNON.Vec3(0, 0, -12);
+    body.applyImpulse(impulse, new CANNON.Vec3(0, 0, 0));
+  }
 
   const marble = {
     body, mesh, team,
@@ -560,10 +568,11 @@ function startRace() {
   raceStartTime = performance.now();
   finishOrder = [];
 
+  // Spawn all 8 marbles with an initial pusher impulse
   for (let i = 0; i < 8; i++) {
-    const row = Math.floor(i / 4);
-    const col = (i % 4) - 1.5;
-    spawnMarble(i, col * 0.9, row * 1.0);
+    const row = Math.floor(i / 2);
+    const col = (i % 2) - 0.5;
+    spawnMarble(i, col * 1.2, row * 1.2, true);
   }
   nextTeamIndex = 8;
 
@@ -572,7 +581,7 @@ function startRace() {
 }
 
 function dropSingleMarble() {
-  spawnMarble(nextTeamIndex % TEAMS.length, 0, 0);
+  spawnMarble(nextTeamIndex % TEAMS.length, 0, 0, true);
   nextTeamIndex++;
   if (!raceActive) {
     raceActive = true;
