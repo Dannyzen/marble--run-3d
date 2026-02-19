@@ -35,24 +35,28 @@ let finishOrder = [];
 let followCamera = true; // Hard-locked to true
 let nextTeamIndex = 0;
 let currentCameraTarget = null;
+let trackData = null; // Store curve and radius for centripetal clamp
 
 // ============================================================
 //  THREE.JS
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xffffff);
-scene.fog = new THREE.Fog(0xffffff, 50, 400);
+scene.background = new THREE.Color(0x111111); // Dark background for performance/contrast
+scene.fog = new THREE.Fog(0x111111, 100, 500);
 
 const camera = new THREE.PerspectiveCamera(
   60, window.innerWidth / window.innerHeight, 0.1, 1000
 );
 camera.position.set(40, 80, 60);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ 
+  antialias: window.devicePixelRatio < 2, // Only antialias on low-DPI (perf)
+  powerPreference: 'high-performance'
+});
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Cap pixel ratio
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.BasicShadowMap; // Faster shadows for mobile
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.0; 
 document.body.appendChild(renderer.domElement);
@@ -62,16 +66,21 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.05;
 controls.maxDistance = 400;
 
-// --- LIGHTS ---
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+// --- LIGHTS (Optimized) ---
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
 
-const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-sun.position.set(100, 200, 100);
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(50, 100, 50);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+// Smaller shadow map for mobile performance
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -100;
+sun.shadow.camera.right = 100;
+sun.shadow.camera.top = 100;
+sun.shadow.camera.bottom = -100;
 scene.add(sun);
 
-scene.add(new THREE.DirectionalLight(0xffffff, 0.4).translateX(-50).translateY(50));
+// Removed secondary light for performance
 
 // --- GROUND GRID ---
 const grid = new THREE.GridHelper(1000, 100, 0xdddddd, 0xeeeeee);
@@ -152,7 +161,7 @@ const trackCurve = new THREE.CatmullRomCurve3(controlPoints, false, 'catmullrom'
 
 function buildLugeTrack() {
   // Main wide slide
-  buildSmoothTrack(trackCurve, world, scene, trackPhysMat);
+  trackData = buildSmoothTrack(trackCurve, world, scene, trackPhysMat);
 }
 
 buildLugeTrack();
@@ -162,7 +171,7 @@ buildLugeTrack();
 // ============================================================
 
 function createMarbleMesh(teamColor) {
-  const geom = new THREE.SphereGeometry(MARBLE_RADIUS, 32, 32);
+  const geom = new THREE.SphereGeometry(MARBLE_RADIUS, 16, 16); // Reduced segments
   const mat = new THREE.MeshStandardMaterial({ color: teamColor, metalness: 0.85, roughness: 0.1 });
   const mesh = new THREE.Mesh(geom, mat);
   mesh.castShadow = true;
@@ -260,19 +269,82 @@ document.getElementById('btn-race').addEventListener('click', startRace);
 document.getElementById('btn-reset').addEventListener('click', resetScene);
 
 const clock = new THREE.Clock();
+const tempVec = new THREE.Vector3();
+
+function applyCentripetalClamp(marble) {
+  if (!trackData || marble.status !== 'racing') return;
+  
+  const pos = marble.body.position;
+  // This is a simplified "closest point on curve" check
+  // For better performance, we'd pre-calculate a lookup table,
+  // but for 4 balls, getPointAt is okay if used sparingly.
+  
+  // Estimate 't' based on Y height (track is mostly vertical)
+  const startY = controlPoints[0].y;
+  const endY = controlPoints[controlPoints.length - 1].y;
+  let t = (startY - pos.y) / (startY - endY);
+  t = Math.max(0, Math.min(1, t));
+  
+  const centerPos = trackData.curve.getPointAt(t);
+  const dist = Math.sqrt(
+    Math.pow(pos.x - centerPos.x, 2) + 
+    Math.pow(pos.z - centerPos.z, 2)
+  );
+
+  // If ball is outside radius (plus a small buffer), clamp it!
+  const maxRadius = trackData.radius - MARBLE_RADIUS;
+  if (dist > maxRadius) {
+    const angle = Math.atan2(pos.z - centerPos.z, pos.x - centerPos.x);
+    marble.body.position.x = centerPos.x + Math.cos(angle) * maxRadius;
+    marble.body.position.z = centerPos.z + Math.sin(angle) * maxRadius;
+    
+    // Dampen velocity that is pushing OUTWARDS
+    const vel = marble.body.velocity;
+    const radialDirX = Math.cos(angle);
+    const radialDirZ = Math.sin(angle);
+    const dot = vel.x * radialDirX + vel.z * radialDirZ;
+    if (dot > 0) {
+      marble.body.velocity.x -= radialDirX * dot * 0.5;
+      marble.body.velocity.z -= radialDirZ * dot * 0.5;
+    }
+  }
+
+  // Velocity Cap to prevent tunneling
+  const maxVel = 50;
+  if (marble.body.velocity.length() > maxVel) {
+    marble.body.velocity.scale(0.95, marble.body.velocity);
+  }
+}
+
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
-  // MOBILE OPTIMIZATION: 6 substeps for smooth performance
-  const subSteps = 6;
+  
+  // MOBILE OPTIMIZATION: fewer substeps but higher quality per step
+  const subSteps = 3; 
+  const timeStep = 1 / 60;
+  
   for (let s = 0; s < subSteps; s++) {
-    world.step(1 / 120, delta / subSteps);
+    world.step(timeStep / subSteps);
+    // Apply indestructible clamp after each physics step
+    marbles.forEach(applyCentripetalClamp);
   }
+
   marbles.forEach(m => {
-    if (m.status === 'racing') { m.mesh.position.copy(m.body.position); m.mesh.quaternion.copy(m.body.quaternion); }
+    if (m.status === 'racing') { 
+      m.mesh.position.copy(m.body.position); 
+      m.mesh.quaternion.copy(m.body.quaternion); 
+    }
   });
-  if (raceActive) { checkFinishAndEliminate(); document.getElementById('timer-display').textContent = ((performance.now() - raceStartTime)/1000).toFixed(2) + 's'; }
-  updateCamera(); controls.update(); renderer.render(scene, camera);
+  
+  if (raceActive) { 
+    checkFinishAndEliminate(); 
+    document.getElementById('timer-display').textContent = ((performance.now() - raceStartTime)/1000).toFixed(2) + 's'; 
+  }
+  
+  updateCamera(); 
+  controls.update(); 
+  renderer.render(scene, camera);
 }
 animate();
 

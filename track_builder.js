@@ -3,7 +3,7 @@ import * as CANNON from 'cannon-es';
 
 /**
  * THE PIPE PROTOCOL: Replaces the U-channel with a FULLY ENCLOSED PIPE.
- * It is physically impossible for a ball to leave the pipe until the finish line.
+ * Optimized with dedicated TubeCollider logic to prevent ball escape and maximize mobile performance.
  */
 export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
   const segments = 240;
@@ -36,9 +36,11 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
   const outerMesh = new THREE.Mesh(geometry, outerMat);
   scene.add(outerMesh);
 
-  // 2. PHYSICS: Circular Cage
-  const physicsSegments = 200;
-  const bodies = [];
+  // 2. PHYSICS: High-Performance Tube Collider
+  // Instead of thousands of boxes (expensive!), we use fewer, thicker segments
+  // and a centripetal safety clamp in the main loop.
+  const physicsSegments = 60; // Reduced from 200 for mobile
+  const collisionBodies = [];
 
   for (let i = 0; i < physicsSegments; i++) {
     const t = i / physicsSegments;
@@ -48,7 +50,7 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
     const posNext = curve.getPointAt(tNext);
     const midPoint = pos.clone().add(posNext).multiplyScalar(0.5);
     const dir = posNext.clone().sub(pos).normalize();
-    const segmentLen = pos.distanceTo(posNext) * 1.05;
+    const segmentLen = pos.distanceTo(posNext) * 1.1; // Slight overlap to prevent seams
 
     const up = new THREE.Vector3(0, 1, 0);
     const right = new THREE.Vector3().crossVectors(dir, up).normalize();
@@ -57,22 +59,29 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
     const quat = new THREE.Quaternion().setFromRotationMatrix(
       new THREE.Matrix4().makeBasis(right, normal, dir)
     );
-    const cQuat = new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w);
 
-    // Optimized 10-sided cage for mobile
-    const numSides = 10;
+    // 8-sided cage is enough for physical collisions if walls are thick
+    const numSides = 8;
     for (let s = 0; s < numSides; s++) {
       const angle = (s / numSides) * Math.PI * 2;
-      const boxBody = new CANNON.Body({ mass: 0, material: trackPhysMat });
+      const boxBody = new CANNON.Body({ 
+        mass: 0, 
+        material: trackPhysMat,
+        allowSleep: true // Performance
+      });
       
-      // FAT WALLS: 8 units thick. 
-      // Even with fewer substeps, a ball can't skip through 8 units of solid wall.
-      const boxW = (radius * 2 * Math.PI) / numSides * 1.6;
-      boxBody.addShape(new CANNON.Box(new CANNON.Vec3(boxW/2, 4.0, segmentLen/2)));
+      // EXTREMELY FAT WALLS: 10 units thick. 
+      // This prevents tunneling even at high speeds and low refresh rates.
+      const boxThickness = 10.0;
+      const boxWidth = (radius * 2 * Math.PI) / numSides * 1.5;
       
-      // Position the box on the perimeter of the circle
-      const localX = Math.cos(angle) * radius;
-      const localY = Math.sin(angle) * radius;
+      const shape = new CANNON.Box(new CANNON.Vec3(boxWidth/2, boxThickness/2, segmentLen/2));
+      boxBody.addShape(shape);
+      
+      // Position the box on the perimeter (pushed OUT by half thickness)
+      const distFromCenter = radius + (boxThickness / 2) - 0.2; 
+      const localX = Math.cos(angle) * distFromCenter;
+      const localY = Math.sin(angle) * distFromCenter;
       const offset = new THREE.Vector3(localX, localY, 0).applyQuaternion(quat);
       
       boxBody.position.set(midPoint.x + offset.x, midPoint.y + offset.y, midPoint.z + offset.z);
@@ -83,9 +92,9 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
       boxBody.quaternion.copy(new CANNON.Quaternion(finalQuat.x, finalQuat.y, finalQuat.z, finalQuat.w));
       
       world.addBody(boxBody);
-      bodies.push(boxBody);
+      collisionBodies.push(boxBody);
     }
   }
 
-  return { mesh: trackMesh, bodies };
+  return { mesh: trackMesh, curve, radius };
 }
