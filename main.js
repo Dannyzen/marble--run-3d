@@ -5,9 +5,10 @@ import { buildVisualTrack } from './track_builder.js';
 
 // --- CONFIG ---
 const MARBLE_RADIUS = 0.28;
-const GRAVITY = -30;
+const GRAVITY = -45; // Increased gravity for more downward "weight"
 const PIPE_RADIUS = 3.5;
-const BALL_REVERSION = 0.5; // Bounce factor
+const BALL_REVERSION = 0.1; // Reduced bounce significantly to stop "jumping"
+const MAX_VELOCITY = 60; // Hard cap to prevent erratic physics
 
 // --- STATE ---
 let marbles = [];
@@ -91,16 +92,34 @@ function animate() {
   const delta = Math.min(clock.getDelta(), 0.05);
   
   if (raceActive) {
-    world.step(1/60, delta);
+    world.step(1/120, delta, 5); // Higher frequency for smoother tracking
     
     marbles.forEach(m => {
+      if (m.status !== 'racing') return;
+      
+      // 0. Friction Simulation (Mobile optimization hack)
+      m.body.velocity.scale(0.992, m.body.velocity); 
+
       // 1. MATHEMATICAL COLLIDER (The "Rail" System)
       // Map current Y position to curve progress [0,1]
       const totalY = points[0].y - points[points.length-1].y;
       const progress = Math.max(0, Math.min(1, (points[0].y - m.body.position.y) / totalY));
       
-      // Fine-tune nearest point search
-      trackCurve.getPointAt(progress, centerPos);
+      // Precision search: Check a small neighborhood around progress
+      let bestT = progress;
+      let minDist = Infinity;
+      const searchRange = 0.05;
+      for (let tStep = -searchRange; tStep <= searchRange; tStep += 0.01) {
+        const testT = Math.max(0, Math.min(1, progress + tStep));
+        trackCurve.getPointAt(testT, centerPos);
+        const d = tempVec.subVectors(m.body.position, centerPos).lengthSq();
+        if (d < minDist) {
+          minDist = d;
+          bestT = testT;
+        }
+      }
+      
+      trackCurve.getPointAt(bestT, centerPos);
       tempVec.subVectors(m.body.position, centerPos);
       
       const dist = tempVec.length();
@@ -111,7 +130,7 @@ function animate() {
         tempVec.setLength(maxDist);
         m.body.position.set(centerPos.x + tempVec.x, centerPos.y + tempVec.y, centerPos.z + tempVec.z);
         
-        // Bounce off the wall
+        // Bounce off the wall (Reduced energy)
         const normal = tempVec.normalize();
         const velocity = new THREE.Vector3(m.body.velocity.x, m.body.velocity.y, m.body.velocity.z);
         const dot = velocity.dot(normal);
@@ -122,6 +141,12 @@ function animate() {
           m.body.velocity.y -= reflect.y;
           m.body.velocity.z -= reflect.z;
         }
+      }
+
+      // Hard cap velocity
+      const speed = m.body.velocity.length();
+      if (speed > MAX_VELOCITY) {
+        m.body.velocity.scale(MAX_VELOCITY / speed, m.body.velocity);
       }
 
       m.mesh.position.copy(m.body.position);
