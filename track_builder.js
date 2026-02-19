@@ -7,9 +7,9 @@ import * as CANNON from 'cannon-es';
  */
 export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
   const segments = 240;
-  const width = 6.0; // Increased from 3.5 to 6.0 for a wide slide
-  const depth = 3.5; // Increased depth to match width
-  const wallThickness = 0.4;
+  const width = 6.0; 
+  const depth = 6.0; // Deepest possible cradle (U-shape + vertical walls)
+  const wallThickness = 0.5;
   
   // 1. VISUAL: Create a semi-circular U-profile for extrusion
   const shape = new THREE.Shape();

@@ -153,43 +153,6 @@ const trackCurve = new THREE.CatmullRomCurve3(controlPoints, false, 'catmullrom'
 function buildLugeTrack() {
   // Main wide slide
   buildSmoothTrack(trackCurve, world, scene, trackPhysMat);
-
-  // --- STARTING PLATFORM ---
-  const sp = controlPoints[0];
-  const platW = 12;
-  const platD = 12;
-  const platH = 0.6;
-  
-  const platGeom = new THREE.BoxGeometry(platW, platH, platD);
-  const platMat = new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 0.1, roughness: 0.5 });
-  const platMesh = new THREE.Mesh(platGeom, platMat);
-  platMesh.position.set(sp.x, sp.y - 0.3, sp.z + platD/2 + 2);
-  platMesh.receiveShadow = true;
-  scene.add(platMesh);
-
-  const platBody = new CANNON.Body({ mass: 0, material: trackPhysMat });
-  platBody.addShape(new CANNON.Box(new CANNON.Vec3(platW/2, platH/2, platD/2)));
-  platBody.position.copy(platMesh.position);
-  world.addBody(platBody);
-
-  // Platform Walls
-  const wallH = 3;
-  const wallT = 0.4;
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x00ffff, transparent: true, opacity: 0.2 });
-  
-  const addWall = (w, h, d, x, y, z) => {
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
-    mesh.position.set(x, y, z);
-    scene.add(mesh);
-    const b = new CANNON.Body({ mass: 0, material: trackPhysMat });
-    b.addShape(new CANNON.Box(new CANNON.Vec3(w/2, h/2, d/2)));
-    b.position.copy(mesh.position);
-    world.addBody(b);
-  };
-
-  addWall(platW, wallH, wallT, sp.x, sp.y + wallH/2, sp.z + platD + 2); // Back
-  addWall(wallT, wallH, platD, sp.x - platW/2, sp.y + wallH/2, sp.z + platD/2 + 2); // Left
-  addWall(wallT, wallH, platD, sp.x + platW/2, sp.y + wallH/2, sp.z + platD/2 + 2); // Right
 }
 
 buildLugeTrack();
@@ -220,11 +183,17 @@ function spawnMarble(teamIndex, xOff, zOff, applyImpulse) {
   });
 
   const sp = controlPoints[0];
-  body.position.set(sp.x + (xOff || 0), sp.y + 1.5, sp.z + 8 + (zOff || 0));
+  // SPAWN DIRECTLY IN THE MOUTH OF THE SLIDE
+  body.position.set(
+    sp.x + (xOff || 0),
+    sp.y + 1.0, 
+    sp.z + (zOff || 0)
+  );
   world.addBody(body);
 
   if (applyImpulse) {
-    body.applyImpulse(new CANNON.Vec3(0, 0, -15), new CANNON.Vec3(0, 0, 0));
+    // Forward impulse to get them moving immediately down the slide
+    body.applyImpulse(new CANNON.Vec3(0, 0, -10), new CANNON.Vec3(0, 0, 0));
   }
 
   marbles.push({ body, mesh, team, status: 'racing', lastPos: body.position.clone(), teamIndex });
