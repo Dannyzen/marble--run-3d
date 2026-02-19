@@ -203,10 +203,10 @@ function startRace() {
   resetScene();
   raceActive = true;
   raceStartTime = performance.now();
-  for (let i = 0; i < 8; i++) {
-    spawnMarble(i, (i % 3 - 1) * 2, Math.floor(i / 3) * 2, true);
+  for (let i = 0; i < 4; i++) {
+    spawnMarble(i, (i % 2 - 0.5) * 2, Math.floor(i / 2) * 2, true);
   }
-  showAnnouncement('🌊 WATER SLIDE READY!', 2000);
+  showAnnouncement('🌊 TUBE RACE: 4 BALLS!', 2000);
 }
 
 function resetScene() {
