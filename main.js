@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { buildSmoothTrack } from './track_builder.js';
 
 // ============================================================
-//  OLYMPIC LUGE / BOBSLED MARBLE RUN 3D
-//  — Virtually impossible to fall off —
+//  VIBRANT SOLID-TRACK MARBLE RUN 3D
 // ============================================================
 
 // --- TEAMS ---
@@ -40,44 +40,38 @@ let currentCameraTarget = null;
 //  THREE.JS
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf0f0f5); // Clean off-white background
-scene.fog = new THREE.FogExp2(0xf0f0f5, 0.001); // Very subtle fog to match white background
+scene.background = new THREE.Color(0xffffff); // Force pure white
+scene.fog = new THREE.Fog(0xffffff, 50, 400); // Standard fog for white bg
 
 const camera = new THREE.PerspectiveCamera(
-  60, window.innerWidth / window.innerHeight, 0.1, 800 // Increased far plane
+  60, window.innerWidth / window.innerHeight, 0.1, 1000
 );
-camera.position.set(25, 50, 40);
+camera.position.set(40, 80, 60);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.2; // Lowered exposure since background is now white
+renderer.toneMappingExposure = 1.0; 
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.05;
-controls.maxDistance = 300; // Allow zooming out more
+controls.maxDistance = 400;
 
 // --- LIGHTS ---
-scene.add(new THREE.AmbientLight(0xffffff, 1.0)); // Neutral white ambient
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
 
-const sun = new THREE.DirectionalLight(0xffffff, 1.5); 
-sun.position.set(50, 100, 50);
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(100, 200, 100);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.near = 1;
-sun.shadow.camera.far = 300;
-sun.shadow.camera.left = -100;
-sun.shadow.camera.right = 100;
-sun.shadow.camera.top = 100;
-sun.shadow.camera.bottom = -100;
 scene.add(sun);
 
-scene.add(new THREE.DirectionalLight(0xccccff, 0.5).translateX(-40).translateY(20)); // Soft fill
+scene.add(new THREE.DirectionalLight(0xffffff, 0.4).translateX(-50).translateY(50));
 
 // Accent lights along course (subtler for white background)
 const accentCols = [0xff88aa, 0x88ffcc, 0x88ccff, 0xffdd88, 0xff88ff];
@@ -92,24 +86,10 @@ const grid = new THREE.GridHelper(500, 50, 0xaaaaaa, 0xcccccc);
 grid.position.y = -75;
 scene.add(grid);
 
-// --- STARS ---
-{
-  const g = new THREE.BufferGeometry();
-  const N = 2000;
-  const pos = new Float32Array(N * 3);
-  for (let i = 0; i < N * 3; i += 3) {
-    const r = 100 + Math.random() * 100;
-    const th = Math.random() * Math.PI * 2;
-    const ph = Math.acos(2 * Math.random() - 1);
-    pos[i] = r * Math.sin(ph) * Math.cos(th);
-    pos[i + 1] = r * Math.sin(ph) * Math.sin(th);
-    pos[i + 2] = r * Math.cos(ph);
-  }
-  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({
-    color: 0xffffff, size: 0.3, sizeAttenuation: true,
-  })));
-}
+// --- GROUND GRID ---
+const grid = new THREE.GridHelper(1000, 100, 0xdddddd, 0xeeeeee);
+grid.position.y = -80;
+scene.add(grid);
 
 // ============================================================
 //  CANNON.JS
@@ -496,7 +476,7 @@ function baseQuatAt(frame) {
 }
 
 // Build it!
-buildLugeTrack();
+buildSmoothTrack(trackCurve, world, scene, trackPhysMat);
 
 // ============================================================
 //  MARBLES
