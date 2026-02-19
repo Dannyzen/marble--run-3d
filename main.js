@@ -72,9 +72,12 @@ function startRace() {
 
     const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(MARBLE_RADIUS), material: marblePhysMat });
     const sp = points[0];
-    body.position.set(sp.x + (i-1.5), sp.y + 0.5, sp.z);
+    // Move spawn point BACKWARDS in Z (to +5) to ensure they are well inside the entrance
+    body.position.set(sp.x + (i-1.5), sp.y + 1.0, sp.z + 5);
     world.addBody(body);
-    body.applyImpulse(new CANNON.Vec3(0, -5, -20)); // Stronger downward + forward kick
+    // Stronger forward push (negative Z) to ensure they enter the tube
+    body.applyImpulse(new CANNON.Vec3(0, -10, -35)); 
+
 
     marbles.push({ body, mesh, status: 'racing' });
   }
