@@ -72,9 +72,9 @@ function startRace() {
 
     const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(MARBLE_RADIUS), material: marblePhysMat });
     const sp = points[0];
-    body.position.set(sp.x + (i-1.5), sp.y, sp.z + (i%2));
+    body.position.set(sp.x + (i-1.5), sp.y + 0.5, sp.z);
     world.addBody(body);
-    body.applyImpulse(new CANNON.Vec3(0, 0, -10));
+    body.applyImpulse(new CANNON.Vec3(0, -5, -20)); // Stronger downward + forward kick
 
     marbles.push({ body, mesh, status: 'racing' });
   }
