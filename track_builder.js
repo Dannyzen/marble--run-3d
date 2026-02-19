@@ -59,16 +59,16 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
     );
     const cQuat = new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w);
 
-    // Create a physical "cage" using 16 boxes for a near-perfect circle
-    const numSides = 16;
+    // Optimized 10-sided cage for mobile
+    const numSides = 10;
     for (let s = 0; s < numSides; s++) {
       const angle = (s / numSides) * Math.PI * 2;
       const boxBody = new CANNON.Body({ mass: 0, material: trackPhysMat });
       
-      // EXTREME THICKNESS: 5.0 units thick walls. 
-      // It is impossible for a marble to travel 5 units in a single sub-step.
-      const boxW = (radius * 2 * Math.PI) / numSides * 1.5;
-      boxBody.addShape(new CANNON.Box(new CANNON.Vec3(boxW/2, 2.5, segmentLen/2)));
+      // FAT WALLS: 8 units thick. 
+      // Even with fewer substeps, a ball can't skip through 8 units of solid wall.
+      const boxW = (radius * 2 * Math.PI) / numSides * 1.6;
+      boxBody.addShape(new CANNON.Box(new CANNON.Vec3(boxW/2, 4.0, segmentLen/2)));
       
       // Position the box on the perimeter of the circle
       const localX = Math.cos(angle) * radius;
