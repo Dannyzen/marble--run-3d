@@ -40,8 +40,8 @@ let currentCameraTarget = null;
 //  THREE.JS
 // ============================================================
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x101025); // Slightly lighter background
-scene.fog = new THREE.FogExp2(0x101025, 0.002); // Reduced fog density for better visibility
+scene.background = new THREE.Color(0xf0f0f5); // Clean off-white background
+scene.fog = new THREE.FogExp2(0xf0f0f5, 0.001); // Very subtle fog to match white background
 
 const camera = new THREE.PerspectiveCamera(
   60, window.innerWidth / window.innerHeight, 0.1, 800 // Increased far plane
@@ -54,7 +54,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 2.0; // Pushed exposure to 2.0
+renderer.toneMappingExposure = 1.2; // Lowered exposure since background is now white
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -63,9 +63,9 @@ controls.dampingFactor = 0.05;
 controls.maxDistance = 300; // Allow zooming out more
 
 // --- LIGHTS ---
-scene.add(new THREE.AmbientLight(0x667799, 1.2)); // Much brighter ambient light
+scene.add(new THREE.AmbientLight(0xffffff, 1.0)); // Neutral white ambient
 
-const sun = new THREE.DirectionalLight(0xffffff, 2.5); // Massive sun boost
+const sun = new THREE.DirectionalLight(0xffffff, 1.5); 
 sun.position.set(50, 100, 50);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -77,18 +77,18 @@ sun.shadow.camera.top = 100;
 sun.shadow.camera.bottom = -100;
 scene.add(sun);
 
-scene.add(new THREE.DirectionalLight(0xaaaaff, 1.0).translateX(-40).translateY(20)); // Stronger fill
+scene.add(new THREE.DirectionalLight(0xccccff, 0.5).translateX(-40).translateY(20)); // Soft fill
 
-// Accent lights along course
+// Accent lights along course (subtler for white background)
 const accentCols = [0xff88aa, 0x88ffcc, 0x88ccff, 0xffdd88, 0xff88ff];
 for (let i = 0; i < accentCols.length; i++) {
-  const pl = new THREE.PointLight(accentCols[i], 1.5, 100); // Stronger and longer range
+  const pl = new THREE.PointLight(accentCols[i], 0.6, 80); 
   pl.position.set(Math.sin(i * 1.3) * 30, 40 - i * 25, Math.cos(i * 1.3) * 30);
   scene.add(pl);
 }
 
-// Add a helper grid for spatial reference
-const grid = new THREE.GridHelper(500, 50, 0x444466, 0x222233);
+// Add a darker helper grid to contrast against white
+const grid = new THREE.GridHelper(500, 50, 0xaaaaaa, 0xcccccc);
 grid.position.y = -75;
 scene.add(grid);
 
