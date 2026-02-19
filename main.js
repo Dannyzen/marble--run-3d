@@ -32,7 +32,7 @@ let marbles = [];
 let raceActive = false;
 let raceStartTime = 0;
 let finishOrder = [];
-let followCamera = true;
+let followCamera = true; // Hard-locked to true
 let nextTeamIndex = 0;
 let currentCameraTarget = null;
 
@@ -264,14 +264,20 @@ function checkFinishAndEliminate() {
 }
 
 function updateCamera() {
-  if (!followCamera) return;
+  // Always follow the leader
   let leader = marbles.filter(m => m.status === 'racing').sort((a,b) => a.body.position.y - b.body.position.y)[0];
   if (leader) {
     const pos = leader.body.position;
     if (!currentCameraTarget) currentCameraTarget = new THREE.Vector3(pos.x, pos.y, pos.z);
-    currentCameraTarget.lerp(new THREE.Vector3(pos.x, pos.y, pos.z), 0.1);
-    camera.position.lerp(currentCameraTarget.clone().add(new THREE.Vector3(25, 20, 25)), 0.05);
-    controls.target.lerp(currentCameraTarget, 0.08);
+    
+    // Smooth lerp to leader position
+    currentCameraTarget.lerp(new THREE.Vector3(pos.x, pos.y, pos.z), 0.15);
+    
+    // Dynamic chase distance
+    const offset = new THREE.Vector3(20, 15, 20);
+    const desiredPos = currentCameraTarget.clone().add(offset);
+    camera.position.lerp(desiredPos, 0.08);
+    controls.target.lerp(currentCameraTarget, 0.1);
   }
 }
 
