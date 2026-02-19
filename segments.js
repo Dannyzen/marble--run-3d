@@ -87,7 +87,13 @@ export function createLoop(startPos, direction, diameter = 10, width = 3) {
   }
   
   const mergedGeom = BufferGeometryUtils.mergeGeometries(geometries);
-  const mesh = new THREE.Mesh(mergedGeom, new THREE.MeshStandardMaterial({ color: 0x556688, metalness: 0.7, roughness: 0.2 }));
+  const mesh = new THREE.Mesh(mergedGeom, new THREE.MeshStandardMaterial({ 
+    color: 0x8899bb, 
+    metalness: 0.4, 
+    roughness: 0.1,
+    emissive: 0x224488,
+    emissiveIntensity: 0.4
+  }));
   
   return { mesh, bodies, endPos: prevPoint, endDirection: direction.clone() };
 }
@@ -155,6 +161,12 @@ export function createCorkscrew(startPos, height = 20, radius = 5, turns = 2, wi
     prevPoint = currentPoint;
   }
   
-  const mesh = new THREE.Mesh(BufferGeometryUtils.mergeGeometries(geometries), new THREE.MeshStandardMaterial({ color: 0x556688, metalness: 0.7, roughness: 0.2 }));
+  const mesh = new THREE.Mesh(BufferGeometryUtils.mergeGeometries(geometries), new THREE.MeshStandardMaterial({ 
+    color: 0x8899bb, 
+    metalness: 0.4, 
+    roughness: 0.1,
+    emissive: 0x224488,
+    emissiveIntensity: 0.4
+  }));
   return { mesh, bodies, endPos: prevPoint };
 }
