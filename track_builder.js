@@ -45,18 +45,27 @@ export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
     );
     const cQuat = new CANNON.Quaternion(quat.x, quat.y, quat.z, quat.w);
 
-    // 8-sided "Super-Thick" Cage
-    const numSides = 8;
+    // 10-sided "Super-Thick" Cage for a tighter seal
+    const numSides = 10;
     for (let s = 0; s < numSides; s++) {
       const angle = (s / numSides) * Math.PI * 2;
       const b = new CANNON.Body({ mass: 0, material: trackPhysMat });
-      const boxW = (radius * 2 * Math.PI) / numSides * 1.5;
       
+      // Calculate arc length for the side
+      const arcLen = (radius * 2 * Math.PI) / numSides;
+      // Overlap slightly to ensure no gaps
+      const boxW = arcLen * 1.5; 
+      
+      // The box is centered on the pipe radius, with half its thickness inside and half outside
+      // This creates a solid 10-unit thick wall that starts EXACTLY at the tube visual boundary
       b.addShape(new CANNON.Box(new CANNON.Vec3(boxW/2, wallThickness/2, segmentLen/2)));
       
+      // Move the box center OUTWARD by half the thickness so its inner face is at the radius
+      const radialOffset = radius + (wallThickness / 2);
+      
       const offset = new THREE.Vector3(
-        Math.cos(angle) * (radius + wallThickness/2),
-        Math.sin(angle) * (radius + wallThickness/2),
+        Math.cos(angle) * radialOffset,
+        Math.sin(angle) * radialOffset,
         0
       ).applyQuaternion(quat);
       

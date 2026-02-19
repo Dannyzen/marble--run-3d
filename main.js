@@ -90,12 +90,12 @@ function startRace() {
     
     world.addBody(body);
     
-    // ENORMOUS LAUNCH IMPULSE
-    const force = 80;
+    // ENORMOUS LAUNCH IMPULSE - Vector aware
+    const launchForce = 120; // Cranked up to 120
     body.applyImpulse(new CANNON.Vec3(
-      startDir.x * force,
-      startDir.y * force - 20, // Strong downward gravity help
-      startDir.z * force
+      startDir.x * launchForce,
+      startDir.y * launchForce - 20, // Downward component to stick to floor
+      startDir.z * launchForce
     ));
 
     marbles.push({ body, mesh, status: 'racing' });
