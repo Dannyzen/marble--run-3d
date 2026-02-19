@@ -54,7 +54,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.1;
+renderer.toneMappingExposure = 1.6; // Increased from 1.1 for a brighter view
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -63,9 +63,9 @@ controls.dampingFactor = 0.05;
 controls.maxDistance = 120;
 
 // --- LIGHTS ---
-scene.add(new THREE.AmbientLight(0x334466, 0.6));
+scene.add(new THREE.AmbientLight(0x445577, 0.9)); // Brighter ambient light
 
-const sun = new THREE.DirectionalLight(0xffeedd, 1.4);
+const sun = new THREE.DirectionalLight(0xffffff, 1.8); // Brighter sun
 sun.position.set(30, 60, 20);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -77,12 +77,12 @@ sun.shadow.camera.top = 80;
 sun.shadow.camera.bottom = -80;
 scene.add(sun);
 
-scene.add(new THREE.DirectionalLight(0x6688cc, 0.3).translateX(-20).translateY(10));
+scene.add(new THREE.DirectionalLight(0x88aaff, 0.6).translateX(-20).translateY(10)); // Brighter fill light
 
 // Accent lights along course
-const accentCols = [0xff4466, 0x44ff88, 0x4488ff, 0xffaa44, 0xff44ff];
+const accentCols = [0xff6688, 0x66ffaa, 0x66aaff, 0xffcc66, 0xff66ff];
 for (let i = 0; i < accentCols.length; i++) {
-  const pl = new THREE.PointLight(accentCols[i], 0.5, 50);
+  const pl = new THREE.PointLight(accentCols[i], 0.8, 60); // Brighter accent lights
   pl.position.set(Math.sin(i * 1.3) * 15, 40 - i * 20, Math.cos(i * 1.3) * 15);
   scene.add(pl);
 }
@@ -131,15 +131,16 @@ world.addContactMaterial(new CANNON.ContactMaterial(marblePhysMat, marblePhysMat
 //  TRACK MATERIALS (visual)
 // ============================================================
 const matFloor = new THREE.MeshStandardMaterial({
-  color: 0x556688, metalness: 0.7, roughness: 0.2,
+  color: 0x8899bb, metalness: 0.4, roughness: 0.1, // Lighter, more reflective floor
+  emissive: 0x112244, emissiveIntensity: 0.2,     // Subtle floor glow
 });
 const matWall = new THREE.MeshStandardMaterial({
-  color: 0x7799bb, metalness: 0.6, roughness: 0.15,
-  transparent: true, opacity: 0.35, side: THREE.DoubleSide,
+  color: 0xccddff, metalness: 0.2, roughness: 0.1,
+  transparent: true, opacity: 0.6, side: THREE.DoubleSide, // Increased opacity from 0.35
 });
 const matRail = new THREE.MeshStandardMaterial({
-  color: 0x99bbdd, metalness: 0.8, roughness: 0.1,
-  transparent: true, opacity: 0.25, side: THREE.DoubleSide,
+  color: 0x00ffff, metalness: 0.9, roughness: 0.1, // Neon cyan rails
+  emissive: 0x00ffff, emissiveIntensity: 0.8,
 });
 const matStart = new THREE.MeshStandardMaterial({
   color: 0x445566, metalness: 0.5, roughness: 0.3,
