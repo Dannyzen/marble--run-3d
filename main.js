@@ -65,19 +65,35 @@ function startRace() {
   marbles = []; finishOrder = []; raceActive = true;
   raceStartTime = performance.now();
 
+  const sp = points[0];
+  const nextPoint = points[1];
+  const startDir = new THREE.Vector3().subVectors(nextPoint, sp).normalize();
+
   for (let i = 0; i < 4; i++) {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(MARBLE_RADIUS, 16, 16), new THREE.MeshStandardMaterial({ color: TEAMS[i] }));
     mesh.castShadow = true;
     scene.add(mesh);
 
     const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(MARBLE_RADIUS), material: marblePhysMat });
-    const sp = points[0];
-    // Move spawn point BACKWARDS in Z (to +5) to ensure they are well inside the entrance
-    body.position.set(sp.x + (i-1.5), sp.y + 1.0, sp.z + 5);
+    
+    // Spread them out significantly so they don't clump
+    const spawnPos = sp.clone().add(startDir.clone().multiplyScalar(4));
+    
+    body.position.set(
+      spawnPos.x + (i - 1.5) * 1.5,
+      spawnPos.y + 1.0,
+      spawnPos.z + (i % 2) * 2
+    );
+    
     world.addBody(body);
-    // Stronger forward push (negative Z) to ensure they enter the tube
-    body.applyImpulse(new CANNON.Vec3(0, -10, -35)); 
-
+    
+    // Direction-aware blast
+    const force = 45;
+    body.applyImpulse(new CANNON.Vec3(
+      startDir.x * force,
+      startDir.y * force - 10,
+      startDir.z * force
+    ));
 
     marbles.push({ body, mesh, status: 'racing' });
   }
