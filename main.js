@@ -69,6 +69,7 @@ function startRace() {
   const nextPoint = points[1];
   const startDir = new THREE.Vector3().subVectors(nextPoint, sp).normalize();
 
+  // STAGGERED LINEUP: Give each ball a unique, clear path
   for (let i = 0; i < 4; i++) {
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(MARBLE_RADIUS, 16, 16), new THREE.MeshStandardMaterial({ color: TEAMS[i] }));
     mesh.castShadow = true;
@@ -76,22 +77,24 @@ function startRace() {
 
     const body = new CANNON.Body({ mass: 1, shape: new CANNON.Sphere(MARBLE_RADIUS), material: marblePhysMat });
     
-    // Spread them out significantly so they don't clump
-    const spawnPos = sp.clone().add(startDir.clone().multiplyScalar(4));
+    // Position them further down the pipe in a staggered line
+    // i=0 starts at +6, i=1 at +9, i=2 at +12, i=3 at +15
+    const depthOffset = 6 + (i * 3);
+    const spawnPos = sp.clone().add(startDir.clone().multiplyScalar(depthOffset));
     
     body.position.set(
-      spawnPos.x + (i - 1.5) * 1.5,
-      spawnPos.y + 1.0,
-      spawnPos.z + (i % 2) * 2
+      spawnPos.x + (i % 2 - 0.5) * 2, // Slight left/right spread
+      spawnPos.y + 0.5,
+      spawnPos.z
     );
     
     world.addBody(body);
     
-    // Direction-aware blast
-    const force = 45;
+    // ENORMOUS LAUNCH IMPULSE
+    const force = 80;
     body.applyImpulse(new CANNON.Vec3(
       startDir.x * force,
-      startDir.y * force - 10,
+      startDir.y * force - 20, // Strong downward gravity help
       startDir.z * force
     ));
 
