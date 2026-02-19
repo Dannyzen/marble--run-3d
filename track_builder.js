@@ -6,9 +6,9 @@ import * as CANNON from 'cannon-es';
  * Designed to cradle marbles at high speeds like a professional water slide.
  */
 export function buildSmoothTrack(curve, world, scene, trackPhysMat) {
-  const segments = 200;
-  const width = 3.5;
-  const depth = 2.5; // Deep cradle
+  const segments = 240;
+  const width = 6.0; // Increased from 3.5 to 6.0 for a wide slide
+  const depth = 3.5; // Increased depth to match width
   const wallThickness = 0.4;
   
   // 1. VISUAL: Create a semi-circular U-profile for extrusion
