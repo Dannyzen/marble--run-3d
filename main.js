@@ -263,10 +263,10 @@ const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.05);
-  // HEAVY PHYSICS BOOST: 12 substeps to prevent balls from phasing through walls
-  const subSteps = 12;
+  // MAXIMUM PHYSICS PRECISION: 20 substeps at 300Hz
+  const subSteps = 20;
   for (let s = 0; s < subSteps; s++) {
-    world.step(1 / 240, delta / subSteps);
+    world.step(1 / 300, delta / subSteps);
   }
   marbles.forEach(m => {
     if (m.status === 'racing') { m.mesh.position.copy(m.body.position); m.mesh.quaternion.copy(m.body.quaternion); }
